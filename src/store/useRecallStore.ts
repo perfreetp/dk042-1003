@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { RecallTask, RiskLevel, TaskStatus } from '@/types';
 import { mockRecalls } from '@/data/mockRecalls';
+import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
 
 interface RecallState {
   recalls: RecallTask[];
@@ -12,7 +13,7 @@ interface RecallState {
   updateStatus: (id: string, status: TaskStatus) => void;
   fetchRecalls: () => void;
   fetchRecallById: (id: string) => void;
-  createRecall: (data: Omit<RecallTask, 'id' | 'createdAt' | 'updatedAt' | 'creatorId' | 'creatorName'>) => void;
+  createRecall: (data: Omit<RecallTask, 'id' | 'createdAt' | 'updatedAt' | 'creatorId' | 'creatorName'>) => string;
   updateRecall: (id: string, data: Partial<RecallTask>) => void;
   closeRecall: (id: string, closingNote?: string) => void;
   getFilteredRecalls: (filters: {
@@ -25,14 +26,17 @@ interface RecallState {
   clearCurrentRecall: () => void;
 }
 
+const initialRecalls = loadFromStorage('recalls', mockRecalls);
+
 export const useRecallStore = create<RecallState>((set, get) => ({
-  recalls: mockRecalls,
+  recalls: initialRecalls,
   currentRecall: null,
   loading: false,
   error: null,
 
   setRecalls: (recalls: RecallTask[]) => {
     set({ recalls });
+    saveToStorage('recalls', recalls);
   },
 
   getRecallById: (id: string) => {
@@ -60,35 +64,43 @@ export const useRecallStore = create<RecallState>((set, get) => ({
 
   createRecall: (data) => {
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    const id = `recall-${Date.now()}`;
     const newRecall: RecallTask = {
       ...data,
-      id: `recall-${Date.now()}`,
+      id,
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
       updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
       creatorId: currentUser?.id || 'u001',
       creatorName: currentUser?.name || '华润制药集团',
     };
-    set((state) => ({
-      recalls: [newRecall, ...state.recalls],
-    }));
+    set((state) => {
+      const newRecalls = [newRecall, ...state.recalls];
+      saveToStorage('recalls', newRecalls);
+      return { recalls: newRecalls };
+    });
+    return id;
   },
 
   updateRecall: (id, data) => {
-    set((state) => ({
-      recalls: state.recalls.map((r) =>
+    set((state) => {
+      const newRecalls = state.recalls.map((r) =>
         r.id === id
           ? { ...r, ...data, updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19) }
           : r
-      ),
-      currentRecall:
-        state.currentRecall?.id === id
-          ? {
-              ...state.currentRecall,
-              ...data,
-              updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-            }
-          : state.currentRecall,
-    }));
+      );
+      saveToStorage('recalls', newRecalls);
+      return {
+        recalls: newRecalls,
+        currentRecall:
+          state.currentRecall?.id === id
+            ? {
+                ...state.currentRecall,
+                ...data,
+                updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+              }
+            : state.currentRecall,
+      };
+    });
   },
 
   closeRecall: (id, closingNote) => {

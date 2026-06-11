@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { Batch } from '@/types';
 import { mockBatches } from '@/data/mockBatches';
+import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
+
+const initialBatches = loadFromStorage<Batch[]>('batches', mockBatches);
 
 interface BatchState {
   batches: Batch[];
@@ -15,11 +18,12 @@ interface BatchState {
 }
 
 export const useBatchStore = create<BatchState>((set, get) => ({
-  batches: mockBatches,
+  batches: initialBatches,
   loading: false,
 
   setBatches: (batches: Batch[]) => {
     set({ batches });
+    saveToStorage('batches', batches);
   },
 
   fetchBatches: (recallTaskId) => {
@@ -41,21 +45,27 @@ export const useBatchStore = create<BatchState>((set, get) => ({
       ...batch,
       id: `batch-${Date.now()}`,
     };
-    set((state) => ({
-      batches: [newBatch, ...state.batches],
-    }));
+    set((state) => {
+      const batches = [newBatch, ...state.batches];
+      saveToStorage('batches', batches);
+      return { batches };
+    });
   },
 
   updateBatch: (id, data) => {
-    set((state) => ({
-      batches: state.batches.map((b) => (b.id === id ? { ...b, ...data } : b)),
-    }));
+    set((state) => {
+      const batches = state.batches.map((b) => (b.id === id ? { ...b, ...data } : b));
+      saveToStorage('batches', batches);
+      return { batches };
+    });
   },
 
   deleteBatch: (id) => {
-    set((state) => ({
-      batches: state.batches.filter((b) => b.id !== id),
-    }));
+    set((state) => {
+      const batches = state.batches.filter((b) => b.id !== id);
+      saveToStorage('batches', batches);
+      return { batches };
+    });
   },
 
   getBatchesByRecallId: (recallTaskId) => {

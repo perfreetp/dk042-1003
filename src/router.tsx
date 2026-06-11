@@ -24,7 +24,7 @@ export const AppRouter = () => {
     <Router>
       <Layout>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<RecallList />} />
           <Route path="/recalls" element={<RecallList />} />
           <Route path="/recalls/create" element={<RecallCreate />} />
           <Route path="/recalls/:id" element={<RecallDetail />} />
@@ -32,6 +32,7 @@ export const AppRouter = () => {
           <Route path="/notifications" element={<NotificationManagement />} />
           <Route path="/recovery" element={<RecoveryList />} />
           <Route path="/recovery/submit/:notificationId" element={<RecoverySubmit />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/archive" element={<Archive />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

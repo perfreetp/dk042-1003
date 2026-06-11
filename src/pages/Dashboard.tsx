@@ -74,13 +74,42 @@ export const Dashboard = () => {
   }, [recalls, notifications, recoveryRecords, currentUser]);
 
   const regionData = useMemo(() => {
-    const regions = ['北京', '上海', '广东', '江苏', '浙江'];
-    return regions.map((region) => {
-      const regionNotifications = notifications.filter((n) =>
-        n.recipientRegion.includes(region)
-      );
+    const provinceMap = new Map<string, { notifications: typeof notifications; records: typeof recoveryRecords }>();
+    
+    notifications.forEach((n) => {
+      let province = n.recipientRegion;
+      if (province.includes('省')) {
+        province = province.substring(0, province.indexOf('省') + 1);
+      } else if (province.includes('市')) {
+        province = province.substring(0, province.indexOf('市') + 1);
+      }
+      province = province.replace(/省|市/g, '');
+      
+      if (!provinceMap.has(province)) {
+        provinceMap.set(province, { notifications: [], records: [] });
+      }
+      provinceMap.get(province)!.notifications.push(n);
+    });
+    
+    recoveryRecords.forEach((r) => {
+      let province = r.unitRegion;
+      if (province.includes('省')) {
+        province = province.substring(0, province.indexOf('省') + 1);
+      } else if (province.includes('市')) {
+        province = province.substring(0, province.indexOf('市') + 1);
+      }
+      province = province.replace(/省|市/g, '');
+      
+      if (!provinceMap.has(province)) {
+        provinceMap.set(province, { notifications: [], records: [] });
+      }
+      provinceMap.get(province)!.records.push(r);
+    });
+    
+    return Array.from(provinceMap.entries()).map(([region, data]) => {
+      const regionNotifications = data.notifications;
       const submitted = regionNotifications.filter((n) => n.status === 'submitted').length;
-      const regionRecords = recoveryRecords.filter((r) => r.unitRegion.includes(region));
+      const regionRecords = data.records;
       const stock = regionRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
       const sold = regionRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
       const recovered = regionRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);
@@ -88,7 +117,7 @@ export const Dashboard = () => {
 
       return {
         name: region,
-        回复率: total > 0 ? (submitted / Math.max(regionNotifications.length, 1)) * 100 : 0,
+        回复率: regionNotifications.length > 0 ? (submitted / regionNotifications.length) * 100 : 0,
         回收率: total > 0 ? (recovered / total) * 100 : 0,
       };
     });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useRecallStore } from '@/store/useRecallStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
@@ -28,13 +28,19 @@ export const RecoverySubmit = () => {
   const { notificationId = '' } = useParams();
   const navigate = useNavigate();
   const { getRecallById } = useRecallStore();
-  const { getNotificationById, markAsSubmitted } = useNotificationStore();
+  const { getNotificationById, markAsSubmitted, markAsRead } = useNotificationStore();
   const { getRecoveryRecordByNotificationId, submitRecord } = useRecoveryStore();
   const { currentUser } = useAuth();
 
   const notification = getNotificationById(notificationId);
   const recall = notification ? getRecallById(notification.recallTaskId) : null;
   const existingRecord = getRecoveryRecordByNotificationId(notificationId);
+
+  useEffect(() => {
+    if (notification && notification.status === 'unread') {
+      markAsRead(notificationId);
+    }
+  }, [notification, notificationId, markAsRead]);
 
   const [stockQuantity, setStockQuantity] = useState(existingRecord?.stockQuantity || 0);
   const [soldQuantity, setSoldQuantity] = useState(existingRecord?.soldQuantity || 0);
@@ -214,7 +220,7 @@ export const RecoverySubmit = () => {
         unitId: currentUser!.id,
         unitName: currentUser!.name,
         unitRole: currentUser!.role,
-        unitRegion: `${currentUser!.province} ${currentUser!.city}`,
+        unitRegion: `${currentUser!.province}${currentUser!.city}`,
         stockQuantity,
         soldQuantity,
         recoveredQuantity,

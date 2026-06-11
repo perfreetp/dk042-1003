@@ -18,7 +18,7 @@ export const Sidebar = () => {
 
   const navItems = [
     {
-      path: '/',
+      path: '/recalls',
       label: '召回任务',
       icon: ClipboardList,
       roles: ['pharma', 'distributor', 'store'],
@@ -65,7 +65,7 @@ export const Sidebar = () => {
   ];
 
   const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/';
+    if (path === '/recalls') return location.pathname === '/' || location.pathname.startsWith('/recalls');
     return location.pathname.startsWith(path);
   };
 

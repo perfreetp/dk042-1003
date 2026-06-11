@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { User, UserRole } from '@/types';
 import { mockUsers, getCurrentUser } from '@/data/mockUsers';
+import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
+
+const initialUsers = loadFromStorage<User[]>('users', mockUsers);
 
 interface UserState {
   currentUser: User | null;
@@ -18,12 +21,13 @@ interface UserState {
 
 export const useUserStore = create<UserState>((set, get) => ({
   currentUser: getCurrentUser(),
-  users: mockUsers,
+  users: initialUsers,
   loading: false,
   error: null,
 
   setUsers: (users: User[]) => {
     set({ users });
+    saveToStorage('users', users);
   },
 
   login: (userId: string) => {

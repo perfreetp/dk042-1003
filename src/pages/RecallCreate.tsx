@@ -124,8 +124,7 @@ export const RecallCreate = () => {
         status: sendNow ? ('in_progress' as TaskStatus) : ('draft' as TaskStatus),
       };
 
-      const taskId = `recall-${Date.now()}`;
-      createRecall(newTask);
+      const taskId = createRecall(newTask);
 
       batches.forEach((batch) => {
         addBatch({
@@ -140,7 +139,7 @@ export const RecallCreate = () => {
         sendNotifications(taskId, selectedRecipients);
       }
 
-      navigate('/');
+      navigate(`/recalls/${taskId}`);
     } finally {
       setSubmitting(false);
     }

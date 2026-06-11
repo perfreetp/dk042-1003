@@ -3,6 +3,10 @@ import type { Notification, NotificationStatus } from '@/types';
 import { mockNotifications } from '@/data/mockNotifications';
 import { getUserById } from '@/data/mockUsers';
 import { mockRecalls } from '@/data/mockRecalls';
+import { useRecallStore } from '@/store/useRecallStore';
+import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
+
+const initialNotifications = loadFromStorage<Notification[]>('notifications', mockNotifications);
 
 interface NotificationState {
   notifications: Notification[];
@@ -27,11 +31,12 @@ interface NotificationState {
 }
 
 export const useNotificationStore = create<NotificationState>((set, get) => ({
-  notifications: mockNotifications,
+  notifications: initialNotifications,
   loading: false,
 
   setNotifications: (notifications: Notification[]) => {
     set({ notifications });
+    saveToStorage('notifications', notifications);
   },
 
   getNotificationById: (id: string) => {
@@ -39,16 +44,18 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   markAsSubmitted: (id: string) => {
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
+    set((state) => {
+      const notifications = state.notifications.map((n) =>
         n.id === id
           ? {
               ...n,
               status: 'submitted' as NotificationStatus,
             }
           : n
-      ),
-    }));
+      );
+      saveToStorage('notifications', notifications);
+      return { notifications };
+    });
   },
 
   fetchNotifications: (recallTaskId) => {
@@ -66,7 +73,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   sendNotifications: (recallTaskId, recipientIds) => {
-    const recall = mockRecalls.find((r) => r.id === recallTaskId);
+    const recallStore = useRecallStore.getState();
+    const recall = recallStore.getRecallById(recallTaskId) || mockRecalls.find((r) => r.id === recallTaskId);
     const newNotifications: Notification[] = recipientIds.map((recipientId) => {
       const user = getUserById(recipientId);
       return {
@@ -77,7 +85,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         recipientId,
         recipientRole: user?.role || 'store',
         recipientName: user?.name || '未知单位',
-        recipientRegion: user?.region || '',
+        recipientRegion: user?.province && user?.city ? `${user.province}${user.city}` : user?.region || '',
         status: 'unread' as NotificationStatus,
         sentAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
         readAt: null,
@@ -88,14 +96,16 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       };
     });
 
-    set((state) => ({
-      notifications: [...newNotifications, ...state.notifications],
-    }));
+    set((state) => {
+      const notifications = [...newNotifications, ...state.notifications];
+      saveToStorage('notifications', notifications);
+      return { notifications };
+    });
   },
 
   markAsRead: (id) => {
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
+    set((state) => {
+      const notifications = state.notifications.map((n) =>
         n.id === id
           ? {
               ...n,
@@ -103,27 +113,31 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
               readAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
             }
           : n
-      ),
-    }));
+      );
+      saveToStorage('notifications', notifications);
+      return { notifications };
+    });
   },
 
   sendReminder: (id) => {
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
+    set((state) => {
+      const notifications = state.notifications.map((n) =>
         n.id === id
           ? {
               ...n,
               sentAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
             }
           : n
-      ),
-    }));
+      );
+      saveToStorage('notifications', notifications);
+      return { notifications };
+    });
   },
 
   checkOverdue: () => {
     const now = new Date();
-    set((state) => ({
-      notifications: state.notifications.map((n) => {
+    set((state) => {
+      const notifications = state.notifications.map((n) => {
         const deadline = new Date(n.feedbackDeadline);
         const isOverdue = now > deadline && n.status !== 'submitted';
         return {
@@ -131,8 +145,10 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
           isOverdue,
           status: isOverdue && n.status !== 'submitted' ? 'overdue' : n.status,
         };
-      }),
-    }));
+      });
+      saveToStorage('notifications', notifications);
+      return { notifications };
+    });
   },
 
   getNotificationsByRecallId: (recallTaskId) => {

@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import type { RecoveryRecord, RegionStats, ChannelStats, UserRole } from '@/types';
 import { mockRecoveryRecords } from '@/data/mockRecoveryRecords';
 import { getUserById } from '@/data/mockUsers';
+import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
+
+const initialRecords = loadFromStorage<RecoveryRecord[]>('recoveryRecords', mockRecoveryRecords);
 
 interface RecoveryState {
   records: RecoveryRecord[];
@@ -35,12 +38,13 @@ interface RecoveryState {
 }
 
 export const useRecoveryStore = create<RecoveryState>((set, get) => ({
-  records: mockRecoveryRecords,
-  recoveryRecords: mockRecoveryRecords,
+  records: initialRecords,
+  recoveryRecords: initialRecords,
   loading: false,
 
   setRecoveryRecords: (records: RecoveryRecord[]) => {
     set({ records, recoveryRecords: records });
+    saveToStorage('recoveryRecords', records);
   },
 
   getRecoveryRecordsByRecallId: (recallTaskId: string) => {
@@ -102,6 +106,7 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
               }
             : r
         );
+        saveToStorage('recoveryRecords', newRecords);
         return { records: newRecords, recoveryRecords: newRecords };
       });
     } else {
@@ -114,6 +119,7 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       };
       set((state) => {
         const newRecords = [newRecord, ...state.records];
+        saveToStorage('recoveryRecords', newRecords);
         return { records: newRecords, recoveryRecords: newRecords };
       });
     }
