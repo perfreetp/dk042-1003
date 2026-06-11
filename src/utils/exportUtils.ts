@@ -1,0 +1,221 @@
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import type { RecallTask, Batch, Notification, RecoveryRecord } from '@/types';
+import { formatDate, formatDateTime, formatNumber } from './formatUtils';
+import { RISK_LEVEL_CONFIG, TASK_STATUS_CONFIG, USER_ROLE_CONFIG } from '@/types';
+
+export const exportRecallCertificate = async (
+  recall: RecallTask,
+  batches: Batch[],
+  notifications: Notification[],
+  recoveryRecords: RecoveryRecord[],
+  elementId?: string
+): Promise<void> => {
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  let yPosition = 20;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(18);
+  pdf.text('药品召回完成证明', pageWidth / 2, yPosition, { align: 'center' });
+  yPosition += 15;
+
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(`证明编号: CERT-${recall.id.toUpperCase()}`, 20, yPosition);
+  pdf.text(`出具日期: ${formatDate(new Date().toISOString())}`, pageWidth - 80, yPosition);
+  yPosition += 10;
+
+  pdf.setLineWidth(0.5);
+  pdf.line(20, yPosition, pageWidth - 20, yPosition);
+  yPosition += 8;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('一、召回任务基本信息', 20, yPosition);
+  yPosition += 8;
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  const infoItems = [
+    { label: '召回任务名称', value: recall.title },
+    { label: '召回原因', value: recall.reason },
+    { label: '风险等级', value: RISK_LEVEL_CONFIG[recall.riskLevel].label },
+    { label: '任务状态', value: TASK_STATUS_CONFIG[recall.status].label },
+    { label: '发起单位', value: recall.creatorName },
+    { label: '创建时间', value: formatDateTime(recall.createdAt) },
+    { label: '截止日期', value: formatDate(recall.deadline) },
+    { label: '完成时间', value: formatDateTime(recall.updatedAt) },
+  ];
+
+  infoItems.forEach((item) => {
+    if (yPosition > pageHeight - 30) {
+      pdf.addPage();
+      yPosition = 20;
+    }
+    pdf.text(`${item.label}:`, 25, yPosition);
+    const valueX = 70;
+    const maxWidth = pageWidth - valueX - 20;
+    const splitValue = pdf.splitTextToSize(item.value, maxWidth);
+    pdf.text(splitValue, valueX, yPosition);
+    yPosition += splitValue.length * 6;
+  });
+
+  yPosition += 5;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('二、召回批次信息', 20, yPosition);
+  yPosition += 8;
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  batches.forEach((batch, index) => {
+    if (yPosition > pageHeight - 50) {
+      pdf.addPage();
+      yPosition = 20;
+    }
+    pdf.text(`批次 ${index + 1}:`, 25, yPosition);
+    yPosition += 6;
+    const batchItems = [
+      { label: '  产品名称', value: batch.productName },
+      { label: '  规格', value: batch.specification },
+      { label: '  生产批号', value: batch.batchNumber },
+      { label: '  生产日期', value: formatDate(batch.productionDate) },
+      { label: '  有效期至', value: formatDate(batch.expiryDate) },
+      { label: '  召回数量', value: formatNumber(batch.quantity) + ' 盒' },
+    ];
+    batchItems.forEach((item) => {
+      pdf.text(`${item.label}: ${item.value}`, 30, yPosition);
+      yPosition += 5;
+    });
+    yPosition += 3;
+  });
+
+  yPosition += 5;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('三、召回统计信息', 20, yPosition);
+  yPosition += 8;
+
+  const totalStock = recoveryRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
+  const totalSold = recoveryRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
+  const totalRecovered = recoveryRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);
+  const recoveryRate = totalStock > 0 ? Math.round((totalRecovered / totalStock) * 100) : 0;
+
+  const stats = [
+    { label: '应通知单位数', value: notifications.length.toString() },
+    { label: '已反馈单位数', value: recoveryRecords.length.toString() },
+    { label: '反馈率', value: `${Math.round((recoveryRecords.length / notifications.length) * 100)}%` },
+    { label: '库存总数', value: formatNumber(totalStock) + ' 盒' },
+    { label: '已销售数量', value: formatNumber(totalSold) + ' 盒' },
+    { label: '已回收数量', value: formatNumber(totalRecovered) + ' 盒' },
+    { label: '回收率', value: `${recoveryRate}%` },
+  ];
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  stats.forEach((stat) => {
+    if (yPosition > pageHeight - 30) {
+      pdf.addPage();
+      yPosition = 20;
+    }
+    pdf.text(`${stat.label}: ${stat.value}`, 25, yPosition);
+    yPosition += 6;
+  });
+
+  yPosition += 10;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('四、召回单位列表', 20, yPosition);
+  yPosition += 8;
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  recoveryRecords.forEach((record, index) => {
+    if (yPosition > pageHeight - 40) {
+      pdf.addPage();
+      yPosition = 20;
+    }
+    const userType = USER_ROLE_CONFIG[record.unitRole].label;
+    pdf.text(
+      `${index + 1}. [${userType}] ${record.unitName} - ${record.unitRegion}`,
+      25,
+      yPosition
+    );
+    pdf.text(
+      `   库存: ${formatNumber(record.stockQuantity)} | 已售: ${formatNumber(record.soldQuantity)} | 已回收: ${formatNumber(record.recoveredQuantity)}`,
+      30,
+      yPosition + 4
+    );
+    yPosition += 10;
+  });
+
+  yPosition += 10;
+  if (yPosition > pageHeight - 40) {
+    pdf.addPage();
+    yPosition = 20;
+  }
+
+  pdf.setLineWidth(0.5);
+  pdf.line(20, yPosition, pageWidth - 20, yPosition);
+  yPosition += 8;
+
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'italic');
+  pdf.text('本证明由药品召回协同系统自动生成，具有同等法律效力。', pageWidth / 2, yPosition, {
+    align: 'center',
+  });
+  yPosition += 6;
+  pdf.text(`系统生成时间: ${formatDateTime(new Date().toISOString())}`, pageWidth / 2, yPosition, {
+    align: 'center',
+  });
+
+  pdf.save(`召回证明_${recall.title}_${formatDate(new Date().toISOString())}.pdf`);
+};
+
+export const exportToCSV = (
+  data: Record<string, unknown>[],
+  filename: string,
+  columns: { key: string; label: string }[]
+): void => {
+  const headers = columns.map((c) => c.label).join(',');
+  const rows = data.map((row) =>
+    columns.map((c) => {
+      const value = row[c.key];
+      if (typeof value === 'string' && value.includes(',')) {
+        return `"${value}"`;
+      }
+      return value ?? '';
+    }).join(',')
+  );
+  const csvContent = [headers, ...rows].join('\n');
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', `${filename}_${formatDate(new Date().toISOString())}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+export const exportElementToPDF = async (elementId: string, filename: string): Promise<void> => {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    useCORS: true,
+    logging: false,
+  });
+
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const imgWidth = 210;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+  pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+  pdf.save(`${filename}.pdf`);
+};
