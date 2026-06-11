@@ -136,11 +136,15 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
 
     const unitName = user?.name || data.unitName;
     const roleName = data.unitRole === 'distributor' ? '经销商' : '门店';
+    const recoveryRate = data.stockQuantity > 0 ? Math.round((data.recoveredQuantity / data.stockQuantity) * 100) : 0;
     useOperationLogStore.getState().addOperationLog({
       recallTaskId: data.recallTaskId,
       operator: unitName,
       operation: 'submit_recovery',
       details: `${roleName}提交回收登记：库存${data.stockQuantity}盒，已售${data.soldQuantity}盒，已回收${data.recoveredQuantity}盒`,
+      relatedUnit: unitName,
+      relatedUnitRole: data.unitRole,
+      processingResult: `回收提交成功，回收率${recoveryRate}%`,
     });
   },
 
@@ -169,7 +173,7 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       const newRecord: RecoveryRecord = {
         ...data,
         id: `record-${Date.now()}`,
-        submittedAt: now,
+        submittedAt: '',
         unitName: user?.name || data.unitName,
         unitRegion: region,
         isDraft: true,
@@ -189,6 +193,9 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       operator: unitName,
       operation: 'save_draft',
       details: `${roleName}保存回收登记草稿，库存数量：${data.stockQuantity}盒`,
+      relatedUnit: unitName,
+      relatedUnitRole: data.unitRole,
+      processingResult: '草稿已保存',
     });
   },
 
@@ -201,7 +208,7 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
   },
 
   getRecordsByRegion: (recallTaskId) => {
-    const allRecords = get().records;
+    const allRecords = get().records.filter((r) => r.isDraft !== true);
     const records = recallTaskId
       ? allRecords.filter((r) => r.recallTaskId === recallTaskId)
       : allRecords;
@@ -245,7 +252,7 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
   },
 
   getRecordsByChannel: (recallTaskId) => {
-    const allRecords = get().records;
+    const allRecords = get().records.filter((r) => r.isDraft !== true);
     const records = recallTaskId
       ? allRecords.filter((r) => r.recallTaskId === recallTaskId)
       : allRecords;

@@ -87,6 +87,9 @@ export const useRecallStore = create<RecallState>((set, get) => ({
       operator: creatorName,
       operation: 'create_recall',
       details: `创建召回任务「${data.title}」，风险等级：${riskLevelMap[data.riskLevel as keyof typeof riskLevelMap] || '未知'}`,
+      relatedUnit: creatorName,
+      relatedUnitRole: 'pharma',
+      processingResult: '任务创建成功',
     });
 
     return id;
@@ -123,6 +126,9 @@ export const useRecallStore = create<RecallState>((set, get) => ({
         operator: recall.creatorName,
         operation: 'close_task',
         details: `关闭召回任务「${recall.title}」${closingNote ? `，结案说明：${closingNote.slice(0, 50)}${closingNote.length > 50 ? '...' : ''}` : ''}`,
+        relatedUnit: recall.creatorName,
+        relatedUnitRole: 'pharma',
+        processingResult: '任务已关闭',
       });
     }
   },

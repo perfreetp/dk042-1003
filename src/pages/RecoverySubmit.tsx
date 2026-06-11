@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useRecallStore } from '@/store/useRecallStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
-import { useOperationLogStore } from '@/store/useOperationLogStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -32,7 +31,6 @@ export const RecoverySubmit = () => {
   const { getRecallById } = useRecallStore();
   const { getNotificationById, markAsSubmitted, markAsRead } = useNotificationStore();
   const { getRecoveryRecordByNotificationId, submitRecord, saveDraft } = useRecoveryStore();
-  const { addOperationLog } = useOperationLogStore();
   const { currentUser } = useAuth();
 
   const notification = getNotificationById(notificationId);
@@ -238,13 +236,6 @@ export const RecoverySubmit = () => {
         submitRecord(null, recordData);
       }
 
-      addOperationLog({
-        recallTaskId: notification.recallTaskId,
-        operator: currentUser!.name,
-        operation: 'submit_recovery',
-        details: `提交回收登记，库存：${stockQuantity}盒，已售：${soldQuantity}盒，已回收：${recoveredQuantity}盒`,
-      });
-
       markAsSubmitted(notificationId);
       navigate('/recovery');
     } finally {
@@ -272,13 +263,6 @@ export const RecoverySubmit = () => {
     } else {
       saveDraft(null, recordData);
     }
-
-    addOperationLog({
-      recallTaskId: notification.recallTaskId,
-      operator: currentUser!.name,
-      operation: 'save_draft',
-      details: `保存回收登记草稿，库存：${stockQuantity}盒`,
-    });
 
     alert('草稿已保存');
     navigate('/recovery');

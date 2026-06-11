@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import type { RecallTask, Batch, Notification, RecoveryRecord, OperationLog } from '@/types';
 import { formatDate, formatDateTime, formatNumber } from './formatUtils';
-import { RISK_LEVEL_CONFIG, TASK_STATUS_CONFIG, USER_ROLE_CONFIG } from '@/types';
+import { RISK_LEVEL_CONFIG, TASK_STATUS_CONFIG, USER_ROLE_CONFIG, OPERATION_TYPE_CONFIG } from '@/types';
 
 export const exportRecallCertificate = async (
   recall: RecallTask,
@@ -215,14 +215,26 @@ export const exportRecallCertificate = async (
           yPosition = 20;
         }
         const timeText = `[${formatDateTime(log.timestamp)}]`;
-        const operatorText = log.operator;
-        const firstLine = `${index + 1}. ${timeText} ${operatorText}`;
+        const opType = OPERATION_TYPE_CONFIG[log.operation]?.label || log.operation;
+        const firstLine = `${index + 1}. ${timeText} [${opType}] ${log.operator}`;
         pdf.text(firstLine, 25, yPosition);
         yPosition += 5;
         const detailsMaxWidth = pageWidth - 30 - 20;
         const splitDetails = pdf.splitTextToSize(log.details, detailsMaxWidth);
         pdf.text(splitDetails, 30, yPosition);
-        yPosition += splitDetails.length * 5 + 2;
+        yPosition += splitDetails.length * 5;
+        const metaParts: string[] = [];
+        if (log.relatedUnit) metaParts.push(`关联单位: ${log.relatedUnit}`);
+        if (log.processingResult) metaParts.push(`处理结果: ${log.processingResult}`);
+        if (metaParts.length > 0) {
+          const metaLine = metaParts.join(' | ');
+          const splitMeta = pdf.splitTextToSize(metaLine, detailsMaxWidth);
+          pdf.setFont('helvetica', 'italic');
+          pdf.text(splitMeta, 30, yPosition);
+          pdf.setFont('helvetica', 'normal');
+          yPosition += splitMeta.length * 5;
+        }
+        yPosition += 2;
       });
   }
 

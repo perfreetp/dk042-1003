@@ -179,3 +179,14 @@ export const USER_ROLE_CONFIG: UserRoleConfig = {
   distributor: { label: '经销商', color: 'text-purple-700', bgColor: 'bg-purple-100' },
   store: { label: '门店', color: 'text-teal-700', bgColor: 'bg-teal-100' },
 };
+
+export const OPERATION_TYPE_CONFIG: Record<string, { label: string }> = {
+  create_recall: { label: '创建召回' },
+  send_notifications: { label: '发送通知' },
+  notification_read: { label: '通知已读' },
+  submit_recovery: { label: '提交回收' },
+  save_draft: { label: '保存草稿' },
+  close_task: { label: '关闭任务' },
+  mark_overdue: { label: '标记逾期' },
+  add_note: { label: '添加备注' },
+};

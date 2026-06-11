@@ -15,7 +15,8 @@ import { Modal } from '@/components/common/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import { formatDate, formatPercent, formatNumber, formatDateTime } from '@/utils/formatUtils';
 import { exportRecallCertificate } from '@/utils/exportUtils';
-import type { InternalNote, Notification as NotificationType, RecoveryRecord } from '@/types';
+import { OPERATION_TYPE_CONFIG } from '@/types';
+import type { InternalNote, Notification as NotificationType, RecoveryRecord, OperationLog } from '@/types';
 import {
   ArrowLeft,
   Package,
@@ -36,6 +37,8 @@ import {
   Edit3,
   AlertCircle,
   CheckCircle,
+  Filter,
+  X,
 } from 'lucide-react';
 
 export const RecallDetail = () => {
@@ -45,7 +48,7 @@ export const RecallDetail = () => {
   const { getBatchesByRecallId } = useBatchStore();
   const { getNotificationsByRecallId, sendNotifications } = useNotificationStore();
   const { getRecoveryRecordsByRecallId, getStatistics } = useRecoveryStore();
-  const { addOperationLog, getLogsByRecallId } = useOperationLogStore();
+  const { getLogsByRecallId, getDistinctLogsByRecallId, getOperationTypes, addOperationLog } = useOperationLogStore();
   const { getNotesByTargetId, addNote } = useInternalNoteStore();
   const { currentUser, canEditRecall, canViewRecovery } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'batches' | 'notifications' | 'recovery' | 'timeline'>('overview');
@@ -55,13 +58,24 @@ export const RecallDetail = () => {
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const [noteTarget, setNoteTarget] = useState<{ id: string; type: 'notification' | 'recovery_record'; unitName: string } | null>(null);
   const [noteContent, setNoteContent] = useState('');
+  const [operationTypeFilter, setOperationTypeFilter] = useState<string>('');
 
   const recall = getRecallById(id);
   const batches = getBatchesByRecallId(id);
   const notifications = getNotificationsByRecallId(id);
-  const recoveryRecords = getRecoveryRecordsByRecallId(id);
+  const allRecoveryRecords = getRecoveryRecordsByRecallId(id);
+  const recoveryRecords = allRecoveryRecords.filter((r) => r.isDraft !== true);
+  const draftRecords = allRecoveryRecords.filter((r) => r.isDraft === true);
   const stats = useMemo(() => getStatistics(id), [id, getStatistics]);
   const logs = useOperationLogStore((s) => s.getLogsByRecallId(id));
+  const distinctLogs = useMemo(() => getDistinctLogsByRecallId(id), [id, getDistinctLogsByRecallId]);
+  const operationTypes = useMemo(() => getOperationTypes(), [getOperationTypes]);
+
+  const filteredLogs = useMemo(() => {
+    if (!operationTypeFilter) return distinctLogs;
+    return distinctLogs.filter((l) => l.operation === operationTypeFilter);
+  }, [distinctLogs, operationTypeFilter]);
+
   const overdueCount = useMemo(
     () => notifications.filter((n) => n.status === 'overdue').length,
     [notifications]
@@ -83,12 +97,6 @@ export const RecallDetail = () => {
   const handleSendNotifications = () => {
     sendNotifications(id, notifications.map((n) => n.recipientId));
     updateStatus(id, 'in_progress');
-    addOperationLog({
-      recallTaskId: id,
-      operator: currentUser?.name || '系统',
-      operation: 'send_notifications',
-      details: `向${notifications.length}家经销商及门店发送召回通知`,
-    });
   };
 
   const handleExport = async () => {
@@ -104,12 +112,6 @@ export const RecallDetail = () => {
   const handleCloseTask = () => {
     closeRecall(id, closingNote);
     setShowCloseModal(false);
-    addOperationLog({
-      recallTaskId: id,
-      operator: currentUser?.name || '系统',
-      operation: 'close_task',
-      details: closingNote ? `关闭召回任务，结案说明：${closingNote}` : '关闭召回任务',
-    });
     setClosingNote('');
   };
 
@@ -140,6 +142,7 @@ export const RecallDetail = () => {
       relatedUnitRole: noteTarget.type === 'notification'
         ? notifications.find((n) => n.id === noteTarget.id)?.recipientRole
         : recoveryRecords.find((r) => r.id === noteTarget.id)?.unitRole,
+      processingResult: '备注已保存',
     });
 
     setNoteModalOpen(false);
@@ -174,7 +177,7 @@ export const RecallDetail = () => {
     { key: 'batches' as const, label: '批次范围', icon: Package, count: batches.length },
     { key: 'notifications' as const, label: '下游通知', icon: Users, count: notifications.length },
     { key: 'recovery' as const, label: '回收登记', icon: ClipboardList, count: recoveryRecords.length },
-    { key: 'timeline' as const, label: '操作记录', icon: Clock, count: logs.length },
+    { key: 'timeline' as const, label: '操作记录', icon: Clock, count: distinctLogs.length },
   ];
 
   return (
@@ -473,10 +476,18 @@ export const RecallDetail = () => {
                 <tbody>
                   {notifications.map((notif: NotificationType) => {
                     const recovery = recoveryRecords.find((r) => r.notificationId === notif.id);
+                    const draft = draftRecords.find((r) => r.notificationId === notif.id);
                     return (
                       <tr key={notif.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
                         <td className="py-3 px-4">
-                          <div className="font-medium text-slate-700">{notif.recipientName}</div>
+                          <div className="font-medium text-slate-700">
+                            {notif.recipientName}
+                            {draft && (
+                              <span className="ml-2 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">
+                                草稿中
+                              </span>
+                            )}
+                          </div>
                           {renderNoteList(notif.id)}
                         </td>
                         <td className="py-3 px-4">
@@ -490,7 +501,7 @@ export const RecallDetail = () => {
                           {notif.readAt ? formatDate(notif.readAt) : '-'}
                         </td>
                         <td className="py-3 px-4 text-slate-500 text-sm">
-                          {recovery ? formatDate(recovery.submittedAt) : '-'}
+                          {recovery && recovery.submittedAt ? formatDate(recovery.submittedAt) : '-'}
                         </td>
                         {canEditRecall() && (
                           <td className="py-3 px-4 text-right">
@@ -527,7 +538,7 @@ export const RecallDetail = () => {
 
       {activeTab === 'recovery' && canViewRecovery() && (
         <div className="space-y-6">
-          {recoveryRecords.length === 0 ? (
+          {recoveryRecords.length === 0 && draftRecords.length === 0 ? (
             <Card>
               <CardContent className="py-16 text-center">
                 <ClipboardList className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -536,103 +547,213 @@ export const RecallDetail = () => {
               </CardContent>
             </Card>
           ) : (
-            recoveryRecords.map((record: RecoveryRecord) => (
-              <Card key={record.id}>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle>{record.unitName}</CardTitle>
-                    <p className="text-sm text-slate-500">
-                      提交于 {formatDate(record.submittedAt)}
-                      {record.isDraft && (
-                        <span className="ml-2 px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full">
-                          草稿
-                        </span>
-                      )}
-                    </p>
+            <>
+              {recoveryRecords.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                    已提交回收记录
+                    <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">
+                      {recoveryRecords.length} 条
+                    </span>
+                  </h3>
+                  <div className="space-y-4">
+                    {recoveryRecords.map((record: RecoveryRecord) => (
+                      <Card key={record.id}>
+                        <CardHeader className="flex flex-row items-center justify-between">
+                          <div>
+                            <CardTitle>{record.unitName}</CardTitle>
+                            <p className="text-sm text-slate-500">
+                              提交于 {formatDate(record.submittedAt)}
+                            </p>
+                          </div>
+                          <StatusTag type="role" status={record.unitRole} />
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className="text-center p-4 bg-blue-50 rounded-xl">
+                              <p className="text-sm text-blue-600 mb-1">库存数量</p>
+                              <p className="text-2xl font-bold text-blue-700">{formatNumber(record.stockQuantity)}</p>
+                              <p className="text-xs text-blue-500">盒</p>
+                            </div>
+                            <div className="text-center p-4 bg-amber-50 rounded-xl">
+                              <p className="text-sm text-amber-600 mb-1">已售数量</p>
+                              <p className="text-2xl font-bold text-amber-700">{formatNumber(record.soldQuantity)}</p>
+                              <p className="text-xs text-amber-500">盒</p>
+                            </div>
+                            <div className="text-center p-4 bg-green-50 rounded-xl">
+                              <p className="text-sm text-green-600 mb-1">已回收数量</p>
+                              <p className="text-2xl font-bold text-green-700">{formatNumber(record.recoveredQuantity)}</p>
+                              <p className="text-xs text-green-500">盒</p>
+                            </div>
+                            <div className="text-center p-4 bg-teal-50 rounded-xl">
+                              <p className="text-sm text-teal-600 mb-1">回收率</p>
+                              <p className="text-2xl font-bold text-teal-700">
+                                {formatPercent(record.recoveredQuantity, record.stockQuantity + record.soldQuantity)}
+                              </p>
+                            </div>
+                          </div>
+                          {record.notes && (
+                            <div className="p-4 bg-slate-50 rounded-xl">
+                              <p className="text-sm text-slate-500 mb-1">补充说明</p>
+                              <p className="text-slate-700">{record.notes}</p>
+                            </div>
+                          )}
+                          {record.photos.length > 0 && (
+                            <div>
+                              <p className="text-sm text-slate-500 mb-3">处理照片</p>
+                              <div className="flex gap-3 overflow-x-auto pb-2">
+                                {record.photos.map((photo, index) => (
+                                  <img
+                                    key={index}
+                                    src={photo}
+                                    alt={`处理照片 ${index + 1}`}
+                                    className="w-32 h-24 object-cover rounded-lg border border-slate-200"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {renderNoteList(record.id)}
+                        </CardContent>
+                        {canEditRecall() && (
+                          <CardFooter>
+                            <Button
+                              variant="outline"
+                              leftIcon={<MessageSquare className="w-4 h-4" />}
+                              onClick={() => openNoteModal(record.id, 'recovery_record', record.unitName)}
+                            >
+                              添加内部备注
+                            </Button>
+                          </CardFooter>
+                        )}
+                      </Card>
+                    ))}
                   </div>
-                  <StatusTag type="role" status={record.unitRole} />
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="text-center p-4 bg-blue-50 rounded-xl">
-                      <p className="text-sm text-blue-600 mb-1">库存数量</p>
-                      <p className="text-2xl font-bold text-blue-700">{formatNumber(record.stockQuantity)}</p>
-                      <p className="text-xs text-blue-500">盒</p>
-                    </div>
-                    <div className="text-center p-4 bg-amber-50 rounded-xl">
-                      <p className="text-sm text-amber-600 mb-1">已售数量</p>
-                      <p className="text-2xl font-bold text-amber-700">{formatNumber(record.soldQuantity)}</p>
-                      <p className="text-xs text-amber-500">盒</p>
-                    </div>
-                    <div className="text-center p-4 bg-green-50 rounded-xl">
-                      <p className="text-sm text-green-600 mb-1">已回收数量</p>
-                      <p className="text-2xl font-bold text-green-700">{formatNumber(record.recoveredQuantity)}</p>
-                      <p className="text-xs text-green-500">盒</p>
-                    </div>
-                    <div className="text-center p-4 bg-teal-50 rounded-xl">
-                      <p className="text-sm text-teal-600 mb-1">回收率</p>
-                      <p className="text-2xl font-bold text-teal-700">
-                        {formatPercent(record.recoveredQuantity, record.stockQuantity + record.soldQuantity)}
-                      </p>
-                    </div>
+                </div>
+              )}
+
+              {draftRecords.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                    <Edit3 className="w-4 h-4 text-amber-600" />
+                    未提交草稿
+                    <span className="px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded-full">
+                      {draftRecords.length} 条
+                    </span>
+                  </h3>
+                  <div className="space-y-4">
+                    {draftRecords.map((record: RecoveryRecord) => (
+                      <Card key={record.id} className="border-amber-200 bg-amber-50/30">
+                        <CardHeader className="flex flex-row items-center justify-between">
+                          <div>
+                            <CardTitle className="flex items-center gap-2">
+                              {record.unitName}
+                              <span className="px-2 py-0.5 bg-amber-200 text-amber-800 text-xs rounded-full">
+                                草稿
+                              </span>
+                            </CardTitle>
+                            <p className="text-sm text-slate-500">
+                              最后更新于 {record.updatedAt ? formatDate(record.updatedAt) : '-'}
+                            </p>
+                          </div>
+                          <StatusTag type="role" status={record.unitRole} />
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className="text-center p-4 bg-white rounded-xl border border-amber-100">
+                              <p className="text-sm text-amber-600 mb-1">库存数量</p>
+                              <p className="text-2xl font-bold text-amber-700">{formatNumber(record.stockQuantity)}</p>
+                              <p className="text-xs text-amber-500">盒</p>
+                            </div>
+                            <div className="text-center p-4 bg-white rounded-xl border border-amber-100">
+                              <p className="text-sm text-amber-600 mb-1">已售数量</p>
+                              <p className="text-2xl font-bold text-amber-700">{formatNumber(record.soldQuantity)}</p>
+                              <p className="text-xs text-amber-500">盒</p>
+                            </div>
+                            <div className="text-center p-4 bg-white rounded-xl border border-amber-100">
+                              <p className="text-sm text-amber-600 mb-1">已回收数量</p>
+                              <p className="text-2xl font-bold text-amber-700">{formatNumber(record.recoveredQuantity)}</p>
+                              <p className="text-xs text-amber-500">盒</p>
+                            </div>
+                            <div className="text-center p-4 bg-white rounded-xl border border-amber-100">
+                              <p className="text-sm text-slate-500 mb-1">提交状态</p>
+                              <p className="text-lg font-semibold text-slate-500">待提交</p>
+                            </div>
+                          </div>
+                          {renderNoteList(record.id)}
+                        </CardContent>
+                        {canEditRecall() && (
+                          <CardFooter>
+                            <Button
+                              variant="outline"
+                              leftIcon={<MessageSquare className="w-4 h-4" />}
+                              onClick={() => openNoteModal(record.id, 'recovery_record', record.unitName)}
+                            >
+                              添加内部备注
+                            </Button>
+                          </CardFooter>
+                        )}
+                      </Card>
+                    ))}
                   </div>
-                  {record.notes && (
-                    <div className="p-4 bg-slate-50 rounded-xl">
-                      <p className="text-sm text-slate-500 mb-1">补充说明</p>
-                      <p className="text-slate-700">{record.notes}</p>
-                    </div>
-                  )}
-                  {record.photos.length > 0 && (
-                    <div>
-                      <p className="text-sm text-slate-500 mb-3">处理照片</p>
-                      <div className="flex gap-3 overflow-x-auto pb-2">
-                        {record.photos.map((photo, index) => (
-                          <img
-                            key={index}
-                            src={photo}
-                            alt={`处理照片 ${index + 1}`}
-                            className="w-32 h-24 object-cover rounded-lg border border-slate-200"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {renderNoteList(record.id)}
-                </CardContent>
-                {canEditRecall() && (
-                  <CardFooter>
-                    <Button
-                      variant="outline"
-                      leftIcon={<MessageSquare className="w-4 h-4" />}
-                      onClick={() => openNoteModal(record.id, 'recovery_record', record.unitName)}
-                    >
-                      添加内部备注
-                    </Button>
-                  </CardFooter>
-                )}
-              </Card>
-            ))
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
 
       {activeTab === 'timeline' && (
         <Card>
-          <CardHeader>
-            <CardTitle>操作记录时间线</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+            <CardTitle>操作记录（审计台账）</CardTitle>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Filter className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <select
+                  value={operationTypeFilter}
+                  onChange={(e) => setOperationTypeFilter(e.target.value)}
+                  className="pl-9 pr-8 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer"
+                >
+                  <option value="">全部动作类型</option>
+                  {operationTypes.map((opType) => (
+                    <option key={opType} value={opType}>
+                      {OPERATION_TYPE_CONFIG[opType]?.label || opType}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {operationTypeFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={<X className="w-4 h-4" />}
+                  onClick={() => setOperationTypeFilter('')}
+                >
+                  清除筛选
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            {logs.length === 0 ? (
+            {distinctLogs.length === 0 ? (
               <div className="py-16 text-center">
                 <Clock className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-slate-700 mb-2">暂无操作记录</h3>
                 <p className="text-slate-500">该召回任务尚未产生任何操作记录</p>
               </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="py-16 text-center">
+                <Filter className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-700 mb-2">未找到匹配记录</h3>
+                <p className="text-slate-500">当前筛选条件下没有操作记录</p>
+              </div>
             ) : (
               <div className="relative pl-8">
                 <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-slate-200" />
-                {logs.map((log, index) => {
-                  const isLast = index === logs.length - 1;
+                {filteredLogs.map((log, index) => {
+                  const isLast = index === filteredLogs.length - 1;
                   let IconComponent = PlusCircle;
                   let iconBg = 'bg-blue-100';
                   let iconColor = 'text-blue-600';
@@ -687,15 +808,23 @@ export const RecallDetail = () => {
                       </div>
                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium text-slate-800">{log.operator}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${iconBg} ${iconColor} font-medium`}>
+                              {OPERATION_TYPE_CONFIG[log.operation]?.label || log.operation}
+                            </span>
                             {log.relatedUnit && (
                               <span className="text-xs px-2 py-0.5 bg-slate-200 text-slate-600 rounded-full">
                                 {log.relatedUnit}
                               </span>
                             )}
+                            {log.processingResult && (
+                              <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
+                                {log.processingResult}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-xs text-slate-500">{formatDate(log.timestamp)}</span>
+                          <span className="text-xs text-slate-500">{formatDateTime(log.timestamp)}</span>
                         </div>
                         <p className="text-slate-600 text-sm">{log.details}</p>
                       </div>

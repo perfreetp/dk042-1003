@@ -37,7 +37,7 @@ export const Archive = () => {
   const { getBatchesByRecallId, batches } = useBatchStore();
   const { getNotificationsByRecallId, notifications } = useNotificationStore();
   const { getRecoveryRecordsByRecallId, getStatistics, records: recoveryRecords } = useRecoveryStore();
-  const { getLogsByRecallId } = useOperationLogStore();
+  const { getDistinctLogsByRecallId } = useOperationLogStore();
   const { canEditRecall } = useAuth();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
@@ -86,7 +86,7 @@ export const Archive = () => {
       const province = extractProvince(n.recipientRegion);
       if (province) regionSet.add(province);
     });
-    recoveryRecords.forEach((r) => {
+    recoveryRecords.filter((r) => r.isDraft !== true).forEach((r) => {
       const province = extractProvince(r.unitRegion);
       if (province) regionSet.add(province);
     });
@@ -111,7 +111,7 @@ export const Archive = () => {
       const recallNotifications = getNotificationsByRecallId(r.id);
       const matchRegion = !regionFilter || recallNotifications.some((n) => n.recipientRegion.includes(regionFilter));
 
-      const recallRecords = getRecoveryRecordsByRecallId(r.id);
+      const recallRecords = getRecoveryRecordsByRecallId(r.id).filter((rec) => rec.isDraft !== true);
       const matchUnitName = !unitNameFilter || recallRecords.some((rec) => rec.unitName.includes(unitNameFilter));
       const matchRegionFromRecords = !regionFilter || recallRecords.some((rec) => rec.unitRegion.includes(regionFilter));
 
@@ -167,7 +167,7 @@ export const Archive = () => {
       const filteredNotifications = getNotificationsByRecallId(recallId);
       const allRecords = getRecoveryRecordsByRecallId(recallId);
       const filteredRecords = allRecords.filter((r) => r.isDraft !== true);
-      const logs = getLogsByRecallId(recallId);
+      const logs = getDistinctLogsByRecallId(recallId);
       await exportRecallCertificate(
         recall,
         batches,
@@ -193,7 +193,7 @@ export const Archive = () => {
         const filteredNotifications = getNotificationsByRecallId(recall.id);
         const allRecords = getRecoveryRecordsByRecallId(recall.id);
         const filteredRecords = allRecords.filter((r) => r.isDraft !== true);
-        const logs = getLogsByRecallId(recall.id);
+        const logs = getDistinctLogsByRecallId(recall.id);
         allLogs.push(...logs);
         await exportRecallCertificate(
           recall,

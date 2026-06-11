@@ -108,6 +108,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       operator: recall?.creatorName || '系统',
       operation: 'send_notifications',
       details: `向${recipientIds.length}家经销商及门店发送召回通知`,
+      relatedUnit: recall?.creatorName || '系统',
+      relatedUnitRole: 'pharma',
+      processingResult: `已向${recipientIds.length}家单位发送通知`,
     });
   },
 
@@ -133,6 +136,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         operator: notification.recipientName,
         operation: 'notification_read',
         details: `${notification.recipientRole === 'distributor' ? '经销商' : '门店'}已阅读召回通知`,
+        relatedUnit: notification.recipientName,
+        relatedUnitRole: notification.recipientRole,
+        processingResult: '通知已读',
       });
     }
   },
