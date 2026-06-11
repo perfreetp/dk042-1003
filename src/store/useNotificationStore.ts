@@ -4,6 +4,7 @@ import { mockNotifications } from '@/data/mockNotifications';
 import { getUserById } from '@/data/mockUsers';
 import { mockRecalls } from '@/data/mockRecalls';
 import { useRecallStore } from '@/store/useRecallStore';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
 import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
 
 const initialNotifications = loadFromStorage<Notification[]>('notifications', mockNotifications);
@@ -101,9 +102,17 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       saveToStorage('notifications', notifications);
       return { notifications };
     });
+
+    useOperationLogStore.getState().addOperationLog({
+      recallTaskId,
+      operator: recall?.creatorName || '系统',
+      operation: 'send_notifications',
+      details: `向${recipientIds.length}家经销商及门店发送召回通知`,
+    });
   },
 
   markAsRead: (id) => {
+    const notification = get().getNotificationById(id);
     set((state) => {
       const notifications = state.notifications.map((n) =>
         n.id === id
@@ -117,6 +126,15 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       saveToStorage('notifications', notifications);
       return { notifications };
     });
+
+    if (notification) {
+      useOperationLogStore.getState().addOperationLog({
+        recallTaskId: notification.recallTaskId,
+        operator: notification.recipientName,
+        operation: 'notification_read',
+        details: `${notification.recipientRole === 'distributor' ? '经销商' : '门店'}已阅读召回通知`,
+      });
+    }
   },
 
   sendReminder: (id) => {

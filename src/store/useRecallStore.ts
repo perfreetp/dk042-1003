@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { RecallTask, RiskLevel, TaskStatus } from '@/types';
 import { mockRecalls } from '@/data/mockRecalls';
 import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
 
 interface RecallState {
   recalls: RecallTask[];
@@ -65,19 +66,29 @@ export const useRecallStore = create<RecallState>((set, get) => ({
   createRecall: (data) => {
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
     const id = `recall-${Date.now()}`;
+    const creatorName = currentUser?.name || '华润制药集团';
+    const riskLevelMap = { high: '高风险', medium: '中风险', low: '低风险' };
     const newRecall: RecallTask = {
       ...data,
       id,
       createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
       updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
       creatorId: currentUser?.id || 'u001',
-      creatorName: currentUser?.name || '华润制药集团',
+      creatorName,
     };
     set((state) => {
       const newRecalls = [newRecall, ...state.recalls];
       saveToStorage('recalls', newRecalls);
       return { recalls: newRecalls };
     });
+
+    useOperationLogStore.getState().addOperationLog({
+      recallTaskId: id,
+      operator: creatorName,
+      operation: 'create_recall',
+      details: `创建召回任务「${data.title}」，风险等级：${riskLevelMap[data.riskLevel as keyof typeof riskLevelMap] || '未知'}`,
+    });
+
     return id;
   },
 
@@ -105,6 +116,15 @@ export const useRecallStore = create<RecallState>((set, get) => ({
 
   closeRecall: (id, closingNote) => {
     get().updateRecall(id, { status: 'closed', closingNote });
+    const recall = get().getRecallById(id);
+    if (recall) {
+      useOperationLogStore.getState().addOperationLog({
+        recallTaskId: id,
+        operator: recall.creatorName,
+        operation: 'close_task',
+        details: `关闭召回任务「${recall.title}」${closingNote ? `，结案说明：${closingNote.slice(0, 50)}${closingNote.length > 50 ? '...' : ''}` : ''}`,
+      });
+    }
   },
 
   getFilteredRecalls: (filters) => {

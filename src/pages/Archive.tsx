@@ -4,6 +4,7 @@ import { useRecallStore } from '@/store/useRecallStore';
 import { useBatchStore } from '@/store/useBatchStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -27,14 +28,16 @@ import {
   Users,
   ChevronRight,
   BarChart3,
+  LoaderCircle,
 } from 'lucide-react';
 
 export const Archive = () => {
   const navigate = useNavigate();
   const { recalls, updateStatus } = useRecallStore();
-  const { getBatchesByRecallId } = useBatchStore();
-  const { getNotificationsByRecallId } = useNotificationStore();
-  const { getRecoveryRecordsByRecallId, getStatistics } = useRecoveryStore();
+  const { getBatchesByRecallId, batches } = useBatchStore();
+  const { getNotificationsByRecallId, notifications } = useNotificationStore();
+  const { getRecoveryRecordsByRecallId, getStatistics, records: recoveryRecords } = useRecoveryStore();
+  const { getLogsByRecallId } = useOperationLogStore();
   const { canEditRecall } = useAuth();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
@@ -42,12 +45,53 @@ export const Archive = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [productNameFilter, setProductNameFilter] = useState('');
+  const [batchNumberFilter, setBatchNumberFilter] = useState('');
+  const [regionFilter, setRegionFilter] = useState('');
+  const [unitNameFilter, setUnitNameFilter] = useState('');
+  const [exportingAll, setExportingAll] = useState(false);
 
   const archivedRecalls = useMemo(() => {
     return recalls.filter(
       (r) => r.status === 'completed' || r.status === 'closed'
     );
   }, [recalls]);
+
+  const allRegions = useMemo(() => {
+    const regionSet = new Set<string>();
+    const extractProvince = (region: string): string => {
+      if (!region) return '';
+      if (region.includes('自治区')) {
+        const idx = region.indexOf('自治区');
+        return region.substring(0, idx + 3);
+      }
+      if (region.includes('特别行政区')) {
+        const idx = region.indexOf('特别行政区');
+        return region.substring(0, idx + 5);
+      }
+      if (region.startsWith('北京市') || region.startsWith('上海市') || region.startsWith('天津市') || region.startsWith('重庆市')) {
+        return region.substring(0, 3);
+      }
+      const provinceIdx = region.indexOf('省');
+      if (provinceIdx !== -1) {
+        return region.substring(0, provinceIdx + 1);
+      }
+      const cityIdx = region.indexOf('市');
+      if (cityIdx !== -1 && cityIdx <= 3) {
+        return region.substring(0, cityIdx + 1);
+      }
+      return region;
+    };
+    notifications.forEach((n) => {
+      const province = extractProvince(n.recipientRegion);
+      if (province) regionSet.add(province);
+    });
+    recoveryRecords.forEach((r) => {
+      const province = extractProvince(r.unitRegion);
+      if (province) regionSet.add(province);
+    });
+    return Array.from(regionSet).sort();
+  }, [notifications, recoveryRecords]);
 
   const filteredRecalls = useMemo(() => {
     return archivedRecalls.filter((r) => {
@@ -59,15 +103,33 @@ export const Archive = () => {
       const matchRisk = !riskFilter || r.riskLevel === riskFilter;
       const matchStart = !dateRange.start || r.createdAt >= dateRange.start;
       const matchEnd = !dateRange.end || r.createdAt <= dateRange.end + 'T23:59:59.999Z';
-      return matchKeyword && matchStatus && matchRisk && matchStart && matchEnd;
+
+      const recallBatches = getBatchesByRecallId(r.id);
+      const matchProductName = !productNameFilter || recallBatches.some((b) => b.productName.includes(productNameFilter));
+      const matchBatchNumber = !batchNumberFilter || recallBatches.some((b) => b.batchNumber.includes(batchNumberFilter));
+
+      const recallNotifications = getNotificationsByRecallId(r.id);
+      const matchRegion = !regionFilter || recallNotifications.some((n) => n.recipientRegion.includes(regionFilter));
+
+      const recallRecords = getRecoveryRecordsByRecallId(r.id);
+      const matchUnitName = !unitNameFilter || recallRecords.some((rec) => rec.unitName.includes(unitNameFilter));
+      const matchRegionFromRecords = !regionFilter || recallRecords.some((rec) => rec.unitRegion.includes(regionFilter));
+
+      const finalMatchRegion = !regionFilter || (matchRegion || matchRegionFromRecords);
+
+      return matchKeyword && matchStatus && matchRisk && matchStart && matchEnd && matchProductName && matchBatchNumber && finalMatchRegion && matchUnitName;
     });
-  }, [archivedRecalls, keyword, statusFilter, riskFilter, dateRange]);
+  }, [archivedRecalls, keyword, statusFilter, riskFilter, dateRange, productNameFilter, batchNumberFilter, regionFilter, unitNameFilter, getBatchesByRecallId, getNotificationsByRecallId, getRecoveryRecordsByRecallId]);
 
   const clearFilters = () => {
     setKeyword('');
     setStatusFilter('');
     setRiskFilter('');
     setDateRange({ start: '', end: '' });
+    setProductNameFilter('');
+    setBatchNumberFilter('');
+    setRegionFilter('');
+    setUnitNameFilter('');
   };
 
   const handleExport = async (recallId: string) => {
@@ -77,11 +139,32 @@ export const Archive = () => {
     setExportingId(recallId);
     try {
       const batches = getBatchesByRecallId(recallId);
-      const notifications = getNotificationsByRecallId(recallId);
-      const recoveryRecords = getRecoveryRecordsByRecallId(recallId);
-      await exportRecallCertificate(recall, batches, notifications, recoveryRecords);
+      const filteredNotifications = getNotificationsByRecallId(recallId);
+      const filteredRecords = getRecoveryRecordsByRecallId(recallId);
+      const logs = getLogsByRecallId(recallId);
+      await exportRecallCertificate(recall, batches, filteredNotifications, filteredRecords, logs);
     } finally {
       setExportingId(null);
+    }
+  };
+
+  const handleExportAll = async () => {
+    if (filteredRecalls.length === 0) return;
+    setExportingAll(true);
+    try {
+      for (let i = 0; i < filteredRecalls.length; i++) {
+        const recall = filteredRecalls[i];
+        const batches = getBatchesByRecallId(recall.id);
+        const filteredNotifications = getNotificationsByRecallId(recall.id);
+        const filteredRecords = getRecoveryRecordsByRecallId(recall.id);
+        const logs = getLogsByRecallId(recall.id);
+        await exportRecallCertificate(recall, batches, filteredNotifications, filteredRecords, logs);
+        if (i < filteredRecalls.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
+    } finally {
+      setExportingAll(false);
     }
   };
 
@@ -98,7 +181,7 @@ export const Archive = () => {
     { value: 'low', label: '低风险' },
   ];
 
-  const hasActiveFilters = statusFilter || riskFilter || keyword || dateRange.start || dateRange.end;
+  const hasActiveFilters = statusFilter || riskFilter || keyword || dateRange.start || dateRange.end || productNameFilter || batchNumberFilter || regionFilter || unitNameFilter;
 
   const totalStats = useMemo(() => {
     const totalTasks = filteredRecalls.length;
@@ -212,62 +295,142 @@ export const Archive = () => {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">任务状态</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as TaskStatus | '')}
-                className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-              >
-                {statusOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+          <div className="space-y-4 mt-4 pt-4 border-t border-slate-100">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">任务状态</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as TaskStatus | '')}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                >
+                  {statusOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">风险等级</label>
+                <select
+                  value={riskFilter}
+                  onChange={(e) => setRiskFilter(e.target.value as RiskLevel | '')}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                >
+                  {riskOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">开始日期</label>
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">结束日期</label>
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">风险等级</label>
-              <select
-                value={riskFilter}
-                onChange={(e) => setRiskFilter(e.target.value as RiskLevel | '')}
-                className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-              >
-                {riskOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">开始日期</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">结束日期</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">药品名称</label>
+                <Input
+                  placeholder="输入药品名称..."
+                  value={productNameFilter}
+                  onChange={(e) => setProductNameFilter(e.target.value)}
+                  leftIcon={<Package className="w-4 h-4" />}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">生产批号</label>
+                <Input
+                  placeholder="输入生产批号..."
+                  value={batchNumberFilter}
+                  onChange={(e) => setBatchNumberFilter(e.target.value)}
+                  leftIcon={<BarChart3 className="w-4 h-4" />}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">地区</label>
+                <select
+                  value={regionFilter}
+                  onChange={(e) => setRegionFilter(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                >
+                  <option value="">全部地区</option>
+                  {allRegions.map((region) => (
+                    <option key={region} value={region}>
+                      {region}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">上报单位</label>
+                <Input
+                  placeholder="输入上报单位名称..."
+                  value={unitNameFilter}
+                  onChange={(e) => setUnitNameFilter(e.target.value)}
+                  leftIcon={<Users className="w-4 h-4" />}
+                />
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <p className="text-sm text-slate-500">
           共 <span className="font-semibold text-slate-700">{filteredRecalls.length}</span> 条归档记录
         </p>
+        {canEditRecall() && filteredRecalls.length > 0 && (
+          <Button
+            variant="primary"
+            leftIcon={<Download className="w-4 h-4" />}
+            loading={exportingAll}
+            onClick={handleExportAll}
+          >
+            {exportingAll ? '正在生成证明...' : `导出全部证明 (${filteredRecalls.length})`}
+          </Button>
+        )}
       </div>
+
+      {exportingAll && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
+            <LoaderCircle className="w-12 h-12 text-blue-600 animate-spin" />
+            <h3 className="text-lg font-semibold text-slate-800">正在生成召回证明...</h3>
+            <p className="text-sm text-slate-500 text-center">
+              正在为 {filteredRecalls.length} 个召回任务生成证明文件，请稍候
+            </p>
+          </div>
+        </div>
+      )}
+
+      {exportingId && !exportingAll && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4">
+            <LoaderCircle className="w-12 h-12 text-blue-600 animate-spin" />
+            <h3 className="text-lg font-semibold text-slate-800">正在生成召回证明...</h3>
+            <p className="text-sm text-slate-500 text-center">
+              正在生成该召回任务的证明文件，请稍候
+            </p>
+          </div>
+        </div>
+      )}
 
       {filteredRecalls.length === 0 ? (
         <Card>

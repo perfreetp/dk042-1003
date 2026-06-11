@@ -62,6 +62,8 @@ export interface RecoveryRecord {
   notes: string;
   submittedAt: string;
   photos: string[];
+  isDraft?: boolean;
+  updatedAt?: string;
 }
 
 export interface User {

@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import type { RecallTask, Batch, Notification, RecoveryRecord } from '@/types';
+import type { RecallTask, Batch, Notification, RecoveryRecord, OperationLog } from '@/types';
 import { formatDate, formatDateTime, formatNumber } from './formatUtils';
 import { RISK_LEVEL_CONFIG, TASK_STATUS_CONFIG, USER_ROLE_CONFIG } from '@/types';
 
@@ -9,6 +9,7 @@ export const exportRecallCertificate = async (
   batches: Batch[],
   notifications: Notification[],
   recoveryRecords: RecoveryRecord[],
+  operationLogs: OperationLog[] = [],
   elementId?: string
 ): Promise<void> => {
   const pdf = new jsPDF('p', 'mm', 'a4');
@@ -152,6 +153,44 @@ export const exportRecallCertificate = async (
   });
 
   yPosition += 10;
+  if (yPosition > pageHeight - 40) {
+    pdf.addPage();
+    yPosition = 20;
+  }
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('五、处理过程记录', 20, yPosition);
+  yPosition += 8;
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(9);
+  if (operationLogs.length === 0) {
+    if (yPosition > pageHeight - 30) {
+      pdf.addPage();
+      yPosition = 20;
+    }
+    pdf.text('暂无操作记录', 25, yPosition);
+    yPosition += 6;
+  } else {
+    operationLogs.forEach((log, index) => {
+      if (yPosition > pageHeight - 35) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      const timeText = `[${formatDateTime(log.timestamp)}]`;
+      const operatorText = log.operator;
+      const firstLine = `${index + 1}. ${timeText} ${operatorText}`;
+      pdf.text(firstLine, 25, yPosition);
+      yPosition += 5;
+      const detailsMaxWidth = pageWidth - 30 - 20;
+      const splitDetails = pdf.splitTextToSize(log.details, detailsMaxWidth);
+      pdf.text(splitDetails, 30, yPosition);
+      yPosition += splitDetails.length * 5 + 2;
+    });
+  }
+
+  yPosition += 8;
   if (yPosition > pageHeight - 40) {
     pdf.addPage();
     yPosition = 20;

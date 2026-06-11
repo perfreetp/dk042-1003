@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useRecallStore } from '@/store/useRecallStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
@@ -22,6 +23,7 @@ import {
   FileText,
   Calendar,
   Camera,
+  Edit3,
 } from 'lucide-react';
 
 export const RecoverySubmit = () => {
@@ -29,7 +31,8 @@ export const RecoverySubmit = () => {
   const navigate = useNavigate();
   const { getRecallById } = useRecallStore();
   const { getNotificationById, markAsSubmitted, markAsRead } = useNotificationStore();
-  const { getRecoveryRecordByNotificationId, submitRecord } = useRecoveryStore();
+  const { getRecoveryRecordByNotificationId, submitRecord, saveDraft } = useRecoveryStore();
+  const { addOperationLog } = useOperationLogStore();
   const { currentUser } = useAuth();
 
   const notification = getNotificationById(notificationId);
@@ -62,7 +65,7 @@ export const RecoverySubmit = () => {
     );
   }
 
-  if (notification.status === 'submitted') {
+  if (notification.status === 'submitted' && !existingRecord?.isDraft) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
@@ -235,11 +238,50 @@ export const RecoverySubmit = () => {
         submitRecord(null, recordData);
       }
 
+      addOperationLog({
+        recallTaskId: notification.recallTaskId,
+        operator: currentUser!.name,
+        operation: 'submit_recovery',
+        details: `提交回收登记，库存：${stockQuantity}盒，已售：${soldQuantity}盒，已回收：${recoveredQuantity}盒`,
+      });
+
       markAsSubmitted(notificationId);
       navigate('/recovery');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSaveDraft = () => {
+    const recordData: Omit<RecoveryRecord, 'id' | 'submittedAt'> = {
+      notificationId,
+      recallTaskId: notification.recallTaskId,
+      unitId: currentUser!.id,
+      unitName: currentUser!.name,
+      unitRole: currentUser!.role,
+      unitRegion: `${currentUser!.province}${currentUser!.city}`,
+      stockQuantity,
+      soldQuantity,
+      recoveredQuantity,
+      notes,
+      photos,
+    };
+
+    if (existingRecord) {
+      saveDraft(existingRecord.id, recordData);
+    } else {
+      saveDraft(null, recordData);
+    }
+
+    addOperationLog({
+      recallTaskId: notification.recallTaskId,
+      operator: currentUser!.name,
+      operation: 'save_draft',
+      details: `保存回收登记草稿，库存：${stockQuantity}盒`,
+    });
+
+    alert('草稿已保存');
+    navigate('/recovery');
   };
 
   return (
@@ -253,6 +295,16 @@ export const RecoverySubmit = () => {
           <p className="text-slate-500 mt-1">请如实填写库存、已售和回收数量</p>
         </div>
       </div>
+
+      {existingRecord?.isDraft && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200">
+          <Edit3 className="w-5 h-5 text-amber-600" />
+          <div>
+            <p className="font-medium text-amber-700">继续编辑草稿</p>
+            <p className="text-sm text-amber-600">上次保存时间：{formatDate(existingRecord.updatedAt || existingRecord.submittedAt)}</p>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -411,9 +463,7 @@ export const RecoverySubmit = () => {
           <Button
             variant="secondary"
             leftIcon={<Save className="w-4 h-4" />}
-            onClick={() => {
-              alert('草稿已保存');
-            }}
+            onClick={handleSaveDraft}
           >
             保存草稿
           </Button>

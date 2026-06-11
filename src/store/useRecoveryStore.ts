@@ -3,6 +3,7 @@ import type { RecoveryRecord, RegionStats, ChannelStats, UserRole } from '@/type
 import { mockRecoveryRecords } from '@/data/mockRecoveryRecords';
 import { getUserById } from '@/data/mockUsers';
 import { loadFromStorage, saveToStorage } from '@/utils/persistUtils';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
 
 const initialRecords = loadFromStorage<RecoveryRecord[]>('recoveryRecords', mockRecoveryRecords);
 
@@ -24,6 +25,7 @@ interface RecoveryState {
   };
   fetchRecords: (recallTaskId?: string) => void;
   submitRecord: (id: string | null, data: Omit<RecoveryRecord, 'id' | 'submittedAt'>) => void;
+  saveDraft: (id: string | null, data: Omit<RecoveryRecord, 'id' | 'submittedAt'>) => void;
   getRecordsByRecallId: (recallTaskId: string) => RecoveryRecord[];
   getRecordsBySubmitter: (unitId: string) => RecoveryRecord[];
   getRecordsByRegion: (recallTaskId?: string) => RegionStats[];
@@ -93,6 +95,8 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
 
   submitRecord: (id, data) => {
     const user = getUserById(data.unitId);
+    const region = user?.province && user?.city ? `${user.province}${user.city}` : user?.region || data.unitRegion;
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     if (id) {
       set((state) => {
         const newRecords = state.records.map((r) =>
@@ -100,9 +104,11 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
             ? {
                 ...r,
                 ...data,
-                submittedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+                submittedAt: now,
                 unitName: user?.name || data.unitName,
-                unitRegion: user?.region || data.unitRegion,
+                unitRegion: region,
+                isDraft: false,
+                updatedAt: now,
               }
             : r
         );
@@ -113,9 +119,11 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       const newRecord: RecoveryRecord = {
         ...data,
         id: `record-${Date.now()}`,
-        submittedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        submittedAt: now,
         unitName: user?.name || data.unitName,
-        unitRegion: user?.region || data.unitRegion,
+        unitRegion: region,
+        isDraft: false,
+        updatedAt: now,
       };
       set((state) => {
         const newRecords = [newRecord, ...state.records];
@@ -123,6 +131,63 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
         return { records: newRecords, recoveryRecords: newRecords };
       });
     }
+
+    const unitName = user?.name || data.unitName;
+    const roleName = data.unitRole === 'distributor' ? '经销商' : '门店';
+    useOperationLogStore.getState().addOperationLog({
+      recallTaskId: data.recallTaskId,
+      operator: unitName,
+      operation: 'submit_recovery',
+      details: `${roleName}提交回收登记：库存${data.stockQuantity}盒，已售${data.soldQuantity}盒，已回收${data.recoveredQuantity}盒`,
+    });
+  },
+
+  saveDraft: (id, data) => {
+    const user = getUserById(data.unitId);
+    const region = user?.province && user?.city ? `${user.province}${user.city}` : user?.region || data.unitRegion;
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    if (id) {
+      set((state) => {
+        const newRecords = state.records.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                ...data,
+                unitName: user?.name || data.unitName,
+                unitRegion: region,
+                isDraft: true,
+                updatedAt: now,
+              }
+            : r
+        );
+        saveToStorage('recoveryRecords', newRecords);
+        return { records: newRecords, recoveryRecords: newRecords };
+      });
+    } else {
+      const newRecord: RecoveryRecord = {
+        ...data,
+        id: `record-${Date.now()}`,
+        submittedAt: now,
+        unitName: user?.name || data.unitName,
+        unitRegion: region,
+        isDraft: true,
+        updatedAt: now,
+      };
+      set((state) => {
+        const newRecords = [newRecord, ...state.records];
+        saveToStorage('recoveryRecords', newRecords);
+        return { records: newRecords, recoveryRecords: newRecords };
+      });
+    }
+
+    const unitName = user?.name || data.unitName;
+    const roleName = data.unitRole === 'distributor' ? '经销商' : '门店';
+    useOperationLogStore.getState().addOperationLog({
+      recallTaskId: data.recallTaskId,
+      operator: unitName,
+      operation: 'save_draft',
+      details: `${roleName}保存回收登记草稿，库存数量：${data.stockQuantity}盒`,
+    });
   },
 
   getRecordsByRecallId: (recallTaskId) => {
@@ -140,11 +205,20 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       : allRecords;
     const regionMap = new Map<string, RegionStats>();
 
+    const extractProvince = (region: string): string => {
+      if (region.includes('省')) {
+        return region.substring(0, region.indexOf('省') + 1).replace('省', '');
+      } else if (region.includes('市')) {
+        return region.substring(0, region.indexOf('市') + 1).replace('市', '');
+      }
+      return region;
+    };
+
     records.forEach((r) => {
-      const key = r.unitRegion;
+      const key = extractProvince(r.unitRegion);
       if (!regionMap.has(key)) {
         regionMap.set(key, {
-          province: '',
+          province: key,
           city: '',
           totalUnits: 0,
           respondedUnits: 0,
@@ -161,9 +235,8 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       stat.totalRecovered += r.recoveredQuantity;
     });
 
-    return Array.from(regionMap.entries()).map(([region, stat]) => ({
+    return Array.from(regionMap.values()).map((stat) => ({
       ...stat,
-      province: region,
       responseRate: stat.totalUnits > 0 ? Math.round((stat.respondedUnits / stat.totalUnits) * 100) : 0,
       recoveryRate: stat.totalStock > 0 ? Math.round((stat.totalRecovered / stat.totalStock) * 100) : 0,
     }));

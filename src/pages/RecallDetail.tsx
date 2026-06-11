@@ -4,6 +4,7 @@ import { useRecallStore } from '@/store/useRecallStore';
 import { useBatchStore } from '@/store/useBatchStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { RiskBadge } from '@/components/common/RiskBadge';
@@ -26,6 +27,13 @@ import {
   XCircle,
   MessageSquare,
   Send,
+  Clock,
+  PlusCircle,
+  Mail,
+  Eye,
+  Edit3,
+  AlertCircle,
+  CheckCircle,
 } from 'lucide-react';
 
 export const RecallDetail = () => {
@@ -35,8 +43,9 @@ export const RecallDetail = () => {
   const { getBatchesByRecallId } = useBatchStore();
   const { getNotificationsByRecallId, sendNotifications } = useNotificationStore();
   const { getRecoveryRecordsByRecallId, getStatistics } = useRecoveryStore();
+  const { addOperationLog, getLogsByRecallId } = useOperationLogStore();
   const { currentUser, canEditRecall, canViewRecovery } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'batches' | 'notifications' | 'recovery'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'batches' | 'notifications' | 'recovery' | 'timeline'>('overview');
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closingNote, setClosingNote] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -46,6 +55,7 @@ export const RecallDetail = () => {
   const notifications = getNotificationsByRecallId(id);
   const recoveryRecords = getRecoveryRecordsByRecallId(id);
   const stats = useMemo(() => getStatistics(id), [id, getStatistics]);
+  const logs = useOperationLogStore((s) => s.getLogsByRecallId(id));
   const overdueCount = useMemo(
     () => notifications.filter((n) => n.status === 'overdue').length,
     [notifications]
@@ -67,6 +77,12 @@ export const RecallDetail = () => {
   const handleSendNotifications = () => {
     sendNotifications(id, notifications.map((n) => n.recipientId));
     updateStatus(id, 'in_progress');
+    addOperationLog({
+      recallTaskId: id,
+      operator: currentUser?.name || '系统',
+      operation: 'send_notifications',
+      details: `向${notifications.length}家经销商及门店发送召回通知`,
+    });
   };
 
   const handleExport = async () => {
@@ -81,6 +97,12 @@ export const RecallDetail = () => {
   const handleCloseTask = () => {
     closeRecall(id, closingNote);
     setShowCloseModal(false);
+    addOperationLog({
+      recallTaskId: id,
+      operator: currentUser?.name || '系统',
+      operation: 'close_task',
+      details: closingNote ? `关闭召回任务，结案说明：${closingNote}` : '关闭召回任务',
+    });
     setClosingNote('');
   };
 
@@ -89,6 +111,7 @@ export const RecallDetail = () => {
     { key: 'batches' as const, label: '批次范围', icon: Package, count: batches.length },
     { key: 'notifications' as const, label: '下游通知', icon: Users, count: notifications.length },
     { key: 'recovery' as const, label: '回收登记', icon: ClipboardList, count: recoveryRecords.length },
+    { key: 'timeline' as const, label: '操作记录', icon: Clock, count: logs.length },
   ];
 
   return (
@@ -496,6 +519,86 @@ export const RecallDetail = () => {
             ))
           )}
         </div>
+      )}
+
+      {activeTab === 'timeline' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>操作记录时间线</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {logs.length === 0 ? (
+              <div className="py-16 text-center">
+                <Clock className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-700 mb-2">暂无操作记录</h3>
+                <p className="text-slate-500">该召回任务尚未产生任何操作记录</p>
+              </div>
+            ) : (
+              <div className="relative pl-8">
+                <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-slate-200" />
+                {logs.map((log, index) => {
+                  const isLast = index === logs.length - 1;
+                  let IconComponent = PlusCircle;
+                  let iconBg = 'bg-blue-100';
+                  let iconColor = 'text-blue-600';
+
+                  switch (log.operation) {
+                    case 'create_recall':
+                      IconComponent = PlusCircle;
+                      iconBg = 'bg-blue-100';
+                      iconColor = 'text-blue-600';
+                      break;
+                    case 'send_notifications':
+                      IconComponent = Mail;
+                      iconBg = 'bg-purple-100';
+                      iconColor = 'text-purple-600';
+                      break;
+                    case 'notification_read':
+                      IconComponent = Eye;
+                      iconBg = 'bg-amber-100';
+                      iconColor = 'text-amber-600';
+                      break;
+                    case 'submit_recovery':
+                      IconComponent = CheckCircle;
+                      iconBg = 'bg-green-100';
+                      iconColor = 'text-green-600';
+                      break;
+                    case 'save_draft':
+                      IconComponent = Edit3;
+                      iconBg = 'bg-slate-100';
+                      iconColor = 'text-slate-600';
+                      break;
+                    case 'close_task':
+                      IconComponent = XCircle;
+                      iconBg = 'bg-teal-100';
+                      iconColor = 'text-teal-600';
+                      break;
+                    case 'mark_overdue':
+                      IconComponent = AlertCircle;
+                      iconBg = 'bg-red-100';
+                      iconColor = 'text-red-600';
+                      break;
+                  }
+
+                  return (
+                    <div key={log.id} className={`relative pb-8 ${isLast ? 'pb-0' : ''}`}>
+                      <div className={`absolute -left-5 w-8 h-8 rounded-full ${iconBg} flex items-center justify-center`}>
+                        <IconComponent className={`w-4 h-4 ${iconColor}`} />
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <span className="font-medium text-slate-800">{log.operator}</span>
+                          <span className="text-xs text-slate-500">{formatDate(log.timestamp)}</span>
+                        </div>
+                        <p className="text-slate-600 text-sm">{log.details}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <Modal

@@ -9,7 +9,10 @@ import { useRecallStore } from '@/store/useRecallStore';
 import { useBatchStore } from '@/store/useBatchStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
+import { useOperationLogStore } from '@/store/useOperationLogStore';
+import { mockOperationLogs } from '@/data/mockOperationLogs';
 import { useEffect } from 'react';
+import { loadFromStorage } from '@/utils/persistUtils';
 
 export default function App() {
   const { setUsers, currentUser, login } = useUserStore();
@@ -17,16 +20,54 @@ export default function App() {
   const { setBatches } = useBatchStore();
   const { setNotifications } = useNotificationStore();
   const { setRecoveryRecords } = useRecoveryStore();
+  const { setOperationLogs } = useOperationLogStore();
 
   useEffect(() => {
-    setUsers(mockUsers);
-    setRecalls(mockRecalls);
-    setBatches(mockBatches);
-    setNotifications(mockNotifications);
-    setRecoveryRecords(mockRecoveryRecords);
+    const storedRecalls = loadFromStorage('recalls', null);
+    const storedNotifications = loadFromStorage('notifications', null);
+    const storedBatches = loadFromStorage('batches', null);
+    const storedRecoveryRecords = loadFromStorage('recoveryRecords', null);
+    const storedUsers = loadFromStorage('users', null);
+    const storedOperationLogs = loadFromStorage('operationLogs', null);
+
+    if (storedUsers && storedUsers.length > 0) {
+      setUsers(storedUsers);
+    } else {
+      setUsers(mockUsers);
+    }
+
+    if (storedRecalls && storedRecalls.length > 0) {
+      setRecalls(storedRecalls);
+    } else {
+      setRecalls(mockRecalls);
+    }
+
+    if (storedBatches && storedBatches.length > 0) {
+      setBatches(storedBatches);
+    } else {
+      setBatches(mockBatches);
+    }
+
+    if (storedNotifications && storedNotifications.length > 0) {
+      setNotifications(storedNotifications);
+    } else {
+      setNotifications(mockNotifications);
+    }
+
+    if (storedRecoveryRecords && storedRecoveryRecords.length > 0) {
+      setRecoveryRecords(storedRecoveryRecords);
+    } else {
+      setRecoveryRecords(mockRecoveryRecords);
+    }
+
+    if (storedOperationLogs && storedOperationLogs.length > 0) {
+      setOperationLogs(storedOperationLogs);
+    } else {
+      setOperationLogs(mockOperationLogs);
+    }
 
     if (!currentUser) {
-      login('user-1');
+      login('u001');
     }
   }, []);
 

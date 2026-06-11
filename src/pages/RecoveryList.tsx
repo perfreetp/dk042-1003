@@ -23,7 +23,7 @@ import {
 
 export const RecoveryList = () => {
   const navigate = useNavigate();
-  const { recoveryRecords, getStatistics } = useRecoveryStore();
+  const { recoveryRecords, getStatistics, getRecoveryRecordByNotificationId } = useRecoveryStore();
   const { recalls } = useRecallStore();
   const { notifications } = useNotificationStore();
   const { currentUser, canEditRecall } = useAuth();
@@ -107,29 +107,42 @@ export const RecoveryList = () => {
           <p className="text-sm font-medium text-slate-700">待处理的召回通知</p>
           {pendingNotifications.map((notif) => {
             const recall = getRecallInfo(notif.recallTaskId);
+            const existingRecord = getRecoveryRecordByNotificationId(notif.id);
+            const hasDraft = existingRecord?.isDraft === true;
             return (
               <Card
                 key={notif.id}
-                className="border-amber-300 bg-amber-50/50 cursor-pointer hover:bg-amber-50 transition-colors"
+                className={`cursor-pointer transition-colors ${
+                  hasDraft
+                    ? 'border-slate-300 bg-slate-50/50 hover:bg-slate-50'
+                    : 'border-amber-300 bg-amber-50/50 hover:bg-amber-50'
+                }`}
                 onClick={() => navigate(`/recovery/submit/${notif.id}`)}
               >
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
-                        <ClipboardList className="w-6 h-6 text-amber-600" />
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                        hasDraft ? 'bg-slate-100' : 'bg-amber-100'
+                      }`}>
+                        <ClipboardList className={`w-6 h-6 ${hasDraft ? 'text-slate-600' : 'text-amber-600'}`} />
                       </div>
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-semibold text-slate-800">{notif.recallTitle}</h3>
                           {recall && <RiskBadge level={recall.riskLevel} size="sm" />}
                           <StatusTag type="notification" status={notif.status} />
+                          {hasDraft && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
+                              草稿中
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-slate-500">{notif.recallReason}</p>
                       </div>
                     </div>
                     <Button variant="ghost" rightIcon={<ArrowRight className="w-4 h-4" />}>
-                      去登记
+                      {hasDraft ? '继续编辑' : '去登记'}
                     </Button>
                   </div>
                 </CardContent>
