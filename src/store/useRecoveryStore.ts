@@ -37,6 +37,8 @@ interface RecoveryState {
     recoveryRate: number;
     responseRate: number;
   };
+  getDraftRecords: (unitId?: string) => RecoveryRecord[];
+  getFormalRecordsByRecallId: (recallTaskId: string) => RecoveryRecord[];
 }
 
 export const useRecoveryStore = create<RecoveryState>((set, get) => ({
@@ -59,8 +61,8 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
 
   getStatistics: (recallTaskId) => {
     const records = recallTaskId
-      ? get().records.filter((r) => r.recallTaskId === recallTaskId)
-      : get().records;
+      ? get().records.filter((r) => r.recallTaskId === recallTaskId && !r.isDraft)
+      : get().records.filter((r) => !r.isDraft);
 
     const totalStock = records.reduce((sum, r) => sum + r.stockQuantity, 0);
     const totalSold = records.reduce((sum, r) => sum + r.soldQuantity, 0);
@@ -281,8 +283,8 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
 
   getRecoveryStats: (recallTaskId) => {
     const records = recallTaskId
-      ? get().records.filter((r) => r.recallTaskId === recallTaskId)
-      : get().records;
+      ? get().records.filter((r) => r.recallTaskId === recallTaskId && !r.isDraft)
+      : get().records.filter((r) => !r.isDraft);
 
     const totalStock = records.reduce((sum, r) => sum + r.stockQuantity, 0);
     const totalSold = records.reduce((sum, r) => sum + r.soldQuantity, 0);
@@ -295,5 +297,17 @@ export const useRecoveryStore = create<RecoveryState>((set, get) => ({
       recoveryRate: totalStock > 0 ? Math.round((totalRecovered / totalStock) * 100) : 0,
       responseRate: records.length > 0 ? Math.round((records.length / records.length) * 100) : 0,
     };
+  },
+
+  getDraftRecords: (unitId) => {
+    const records = get().records.filter((r) => r.isDraft === true);
+    if (unitId) {
+      return records.filter((r) => r.unitId === unitId);
+    }
+    return records;
+  },
+
+  getFormalRecordsByRecallId: (recallTaskId: string) => {
+    return get().records.filter((r) => r.recallTaskId === recallTaskId && r.isDraft !== true);
   },
 }));

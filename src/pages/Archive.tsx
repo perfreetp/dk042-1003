@@ -14,7 +14,7 @@ import { ProgressBar } from '@/components/common/ProgressBar';
 import { useAuth } from '@/hooks/useAuth';
 import { formatDate, formatPercent, formatNumber } from '@/utils/formatUtils';
 import { exportRecallCertificate } from '@/utils/exportUtils';
-import type { TaskStatus, RiskLevel } from '@/types';
+import type { TaskStatus, RiskLevel, OperationLog } from '@/types';
 import {
   Archive as ArchiveIcon,
   Search,
@@ -121,6 +121,31 @@ export const Archive = () => {
     });
   }, [archivedRecalls, keyword, statusFilter, riskFilter, dateRange, productNameFilter, batchNumberFilter, regionFilter, unitNameFilter, getBatchesByRecallId, getNotificationsByRecallId, getRecoveryRecordsByRecallId]);
 
+  const filterSummaryText = useMemo(() => {
+    const parts: string[] = [];
+    if (keyword) parts.push(`关键词：${keyword}`);
+    if (statusFilter) {
+      const statusLabel = statusFilter === 'completed' ? '已完成' : '已关闭';
+      parts.push(`状态：${statusLabel}`);
+    }
+    if (riskFilter) {
+      const riskLabel = riskFilter === 'high' ? '高风险' : riskFilter === 'medium' ? '中风险' : '低风险';
+      parts.push(`风险等级：${riskLabel}`);
+    }
+    if (productNameFilter) parts.push(`药品：${productNameFilter}`);
+    if (batchNumberFilter) parts.push(`批号：${batchNumberFilter}`);
+    if (regionFilter) parts.push(`地区：${regionFilter}`);
+    if (unitNameFilter) parts.push(`上报单位：${unitNameFilter}`);
+    if (dateRange.start || dateRange.end) {
+      const datePart = `创建时间：${dateRange.start || '不限'} 至 ${dateRange.end || '不限'}`;
+      parts.push(datePart);
+    }
+    parts.push(`共筛选出 ${filteredRecalls.length} 条任务`);
+    return parts.join(' | ');
+  }, [keyword, statusFilter, riskFilter, productNameFilter, batchNumberFilter, regionFilter, unitNameFilter, dateRange, filteredRecalls.length]);
+
+  const hasActiveFilters = statusFilter || riskFilter || keyword || dateRange.start || dateRange.end || productNameFilter || batchNumberFilter || regionFilter || unitNameFilter;
+
   const clearFilters = () => {
     setKeyword('');
     setStatusFilter('');
@@ -140,9 +165,18 @@ export const Archive = () => {
     try {
       const batches = getBatchesByRecallId(recallId);
       const filteredNotifications = getNotificationsByRecallId(recallId);
-      const filteredRecords = getRecoveryRecordsByRecallId(recallId);
+      const allRecords = getRecoveryRecordsByRecallId(recallId);
+      const filteredRecords = allRecords.filter((r) => r.isDraft !== true);
       const logs = getLogsByRecallId(recallId);
-      await exportRecallCertificate(recall, batches, filteredNotifications, filteredRecords, logs);
+      await exportRecallCertificate(
+        recall,
+        batches,
+        filteredNotifications,
+        filteredRecords,
+        logs,
+        hasActiveFilters ? filterSummaryText : undefined,
+        true
+      );
     } finally {
       setExportingId(null);
     }
@@ -152,13 +186,24 @@ export const Archive = () => {
     if (filteredRecalls.length === 0) return;
     setExportingAll(true);
     try {
+      const allLogs: OperationLog[] = [];
       for (let i = 0; i < filteredRecalls.length; i++) {
         const recall = filteredRecalls[i];
         const batches = getBatchesByRecallId(recall.id);
         const filteredNotifications = getNotificationsByRecallId(recall.id);
-        const filteredRecords = getRecoveryRecordsByRecallId(recall.id);
+        const allRecords = getRecoveryRecordsByRecallId(recall.id);
+        const filteredRecords = allRecords.filter((r) => r.isDraft !== true);
         const logs = getLogsByRecallId(recall.id);
-        await exportRecallCertificate(recall, batches, filteredNotifications, filteredRecords, logs);
+        allLogs.push(...logs);
+        await exportRecallCertificate(
+          recall,
+          batches,
+          filteredNotifications,
+          filteredRecords,
+          logs,
+          hasActiveFilters ? filterSummaryText : undefined,
+          true
+        );
         if (i < filteredRecalls.length - 1) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
@@ -180,8 +225,6 @@ export const Archive = () => {
     { value: 'medium', label: '中风险' },
     { value: 'low', label: '低风险' },
   ];
-
-  const hasActiveFilters = statusFilter || riskFilter || keyword || dateRange.start || dateRange.end || productNameFilter || batchNumberFilter || regionFilter || unitNameFilter;
 
   const totalStats = useMemo(() => {
     const totalTasks = filteredRecalls.length;
@@ -387,6 +430,15 @@ export const Archive = () => {
                   leftIcon={<Users className="w-4 h-4" />}
                 />
               </div>
+            </div>
+          </div>
+        )}
+
+        {hasActiveFilters && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <BarChart3 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-blue-700">{filterSummaryText}</p>
             </div>
           </div>
         )}

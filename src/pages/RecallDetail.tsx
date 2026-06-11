@@ -5,15 +5,17 @@ import { useBatchStore } from '@/store/useBatchStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
 import { useOperationLogStore } from '@/store/useOperationLogStore';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/common/Card';
+import { useInternalNoteStore } from '@/store/useInternalNoteStore';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { RiskBadge } from '@/components/common/RiskBadge';
 import { StatusTag } from '@/components/common/StatusTag';
 import { ProgressBar } from '@/components/common/ProgressBar';
 import { Modal } from '@/components/common/Modal';
 import { useAuth } from '@/hooks/useAuth';
-import { formatDate, formatPercent, formatNumber } from '@/utils/formatUtils';
+import { formatDate, formatPercent, formatNumber, formatDateTime } from '@/utils/formatUtils';
 import { exportRecallCertificate } from '@/utils/exportUtils';
+import type { InternalNote, Notification as NotificationType, RecoveryRecord } from '@/types';
 import {
   ArrowLeft,
   Package,
@@ -44,11 +46,15 @@ export const RecallDetail = () => {
   const { getNotificationsByRecallId, sendNotifications } = useNotificationStore();
   const { getRecoveryRecordsByRecallId, getStatistics } = useRecoveryStore();
   const { addOperationLog, getLogsByRecallId } = useOperationLogStore();
+  const { getNotesByTargetId, addNote } = useInternalNoteStore();
   const { currentUser, canEditRecall, canViewRecovery } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'batches' | 'notifications' | 'recovery' | 'timeline'>('overview');
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closingNote, setClosingNote] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [noteTarget, setNoteTarget] = useState<{ id: string; type: 'notification' | 'recovery_record'; unitName: string } | null>(null);
+  const [noteContent, setNoteContent] = useState('');
 
   const recall = getRecallById(id);
   const batches = getBatchesByRecallId(id);
@@ -88,7 +94,8 @@ export const RecallDetail = () => {
   const handleExport = async () => {
     setExporting(true);
     try {
-      await exportRecallCertificate(recall, batches, notifications, recoveryRecords);
+      const formalRecords = recoveryRecords.filter((r) => r.isDraft !== true);
+      await exportRecallCertificate(recall, batches, notifications, formalRecords, logs);
     } finally {
       setExporting(false);
     }
@@ -104,6 +111,62 @@ export const RecallDetail = () => {
       details: closingNote ? `关闭召回任务，结案说明：${closingNote}` : '关闭召回任务',
     });
     setClosingNote('');
+  };
+
+  const openNoteModal = (targetId: string, targetType: 'notification' | 'recovery_record', unitName: string) => {
+    setNoteTarget({ id: targetId, type: targetType, unitName });
+    setNoteContent('');
+    setNoteModalOpen(true);
+  };
+
+  const handleSubmitNote = () => {
+    if (!noteTarget || !noteContent.trim() || !currentUser) return;
+
+    addNote({
+      recallTaskId: id,
+      targetId: noteTarget.id,
+      targetType: noteTarget.type,
+      content: noteContent.trim(),
+      operator: currentUser.name,
+      operatorRole: currentUser.role,
+    });
+
+    addOperationLog({
+      recallTaskId: id,
+      operator: currentUser.name,
+      operation: 'add_note',
+      details: `添加内部备注：${noteContent.trim().slice(0, 50)}${noteContent.trim().length > 50 ? '...' : ''}`,
+      relatedUnit: noteTarget.unitName,
+      relatedUnitRole: noteTarget.type === 'notification'
+        ? notifications.find((n) => n.id === noteTarget.id)?.recipientRole
+        : recoveryRecords.find((r) => r.id === noteTarget.id)?.unitRole,
+    });
+
+    setNoteModalOpen(false);
+    setNoteTarget(null);
+    setNoteContent('');
+  };
+
+  const renderNoteList = (targetId: string) => {
+    const notes = getNotesByTargetId(targetId);
+    if (notes.length === 0) return null;
+
+    return (
+      <div className="mt-3 space-y-2">
+        {notes.map((note: InternalNote) => (
+          <div key={note.id} className="flex items-start gap-2 p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+            <MessageSquare className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-medium text-indigo-700">{note.operator}</span>
+                <span className="text-indigo-400">{formatDateTime(note.createdAt)}</span>
+              </div>
+              <p className="text-sm text-indigo-600 mt-0.5 break-words">{note.content}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const tabs = [
@@ -408,11 +471,14 @@ export const RecallDetail = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {notifications.map((notif) => {
+                  {notifications.map((notif: NotificationType) => {
                     const recovery = recoveryRecords.find((r) => r.notificationId === notif.id);
                     return (
-                      <tr key={notif.id} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-3 px-4 font-medium text-slate-700">{notif.recipientName}</td>
+                      <tr key={notif.id} className="border-b border-slate-100 hover:bg-slate-50 align-top">
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-700">{notif.recipientName}</div>
+                          {renderNoteList(notif.id)}
+                        </td>
                         <td className="py-3 px-4">
                           <StatusTag type="role" status={notif.recipientRole} />
                         </td>
@@ -428,15 +494,25 @@ export const RecallDetail = () => {
                         </td>
                         {canEditRecall() && (
                           <td className="py-3 px-4 text-right">
-                            {notif.status === 'unread' && (
+                            <div className="flex items-center justify-end gap-1">
+                              {notif.status === 'unread' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  leftIcon={<MessageSquare className="w-4 h-4" />}
+                                >
+                                  催办
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 leftIcon={<MessageSquare className="w-4 h-4" />}
+                                onClick={() => openNoteModal(notif.id, 'notification', notif.recipientName)}
                               >
-                                催办
+                                备注
                               </Button>
-                            )}
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -460,12 +536,19 @@ export const RecallDetail = () => {
               </CardContent>
             </Card>
           ) : (
-            recoveryRecords.map((record) => (
+            recoveryRecords.map((record: RecoveryRecord) => (
               <Card key={record.id}>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
                     <CardTitle>{record.unitName}</CardTitle>
-                    <p className="text-sm text-slate-500">提交于 {formatDate(record.submittedAt)}</p>
+                    <p className="text-sm text-slate-500">
+                      提交于 {formatDate(record.submittedAt)}
+                      {record.isDraft && (
+                        <span className="ml-2 px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full">
+                          草稿
+                        </span>
+                      )}
+                    </p>
                   </div>
                   <StatusTag type="role" status={record.unitRole} />
                 </CardHeader>
@@ -514,7 +597,19 @@ export const RecallDetail = () => {
                       </div>
                     </div>
                   )}
+                  {renderNoteList(record.id)}
                 </CardContent>
+                {canEditRecall() && (
+                  <CardFooter>
+                    <Button
+                      variant="outline"
+                      leftIcon={<MessageSquare className="w-4 h-4" />}
+                      onClick={() => openNoteModal(record.id, 'recovery_record', record.unitName)}
+                    >
+                      添加内部备注
+                    </Button>
+                  </CardFooter>
+                )}
               </Card>
             ))
           )}
@@ -578,6 +673,11 @@ export const RecallDetail = () => {
                       iconBg = 'bg-red-100';
                       iconColor = 'text-red-600';
                       break;
+                    case 'add_note':
+                      IconComponent = MessageSquare;
+                      iconBg = 'bg-indigo-100';
+                      iconColor = 'text-indigo-600';
+                      break;
                   }
 
                   return (
@@ -587,7 +687,14 @@ export const RecallDetail = () => {
                       </div>
                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                          <span className="font-medium text-slate-800">{log.operator}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800">{log.operator}</span>
+                            {log.relatedUnit && (
+                              <span className="text-xs px-2 py-0.5 bg-slate-200 text-slate-600 rounded-full">
+                                {log.relatedUnit}
+                              </span>
+                            )}
+                          </div>
                           <span className="text-xs text-slate-500">{formatDate(log.timestamp)}</span>
                         </div>
                         <p className="text-slate-600 text-sm">{log.details}</p>
@@ -632,6 +739,48 @@ export const RecallDetail = () => {
               onChange={(e) => setClosingNote(e.target.value)}
               rows={4}
               className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={noteModalOpen}
+        onClose={() => setNoteModalOpen(false)}
+        title={`添加内部备注${noteTarget ? ` - ${noteTarget.unitName}` : ''}`}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setNoteModalOpen(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={handleSubmitNote}
+              leftIcon={<MessageSquare className="w-4 h-4" />}
+              disabled={!noteContent.trim()}
+            >
+              提交备注
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+            <MessageSquare className="w-5 h-5 text-indigo-600 mt-0.5" />
+            <div>
+              <p className="font-medium text-indigo-700 text-sm">内部备注</p>
+              <p className="text-xs text-indigo-500">仅药企内部可见，用于记录处理过程中的沟通事项</p>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">备注内容</label>
+            <textarea
+              placeholder="请输入备注内容..."
+              value={noteContent}
+              onChange={(e) => setNoteContent(e.target.value)}
+              rows={4}
+              className="w-full px-4 py-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+              autoFocus
             />
           </div>
         </div>

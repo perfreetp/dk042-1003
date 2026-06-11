@@ -11,6 +11,8 @@ import { useNotificationStore } from '@/store/useNotificationStore';
 import { useRecoveryStore } from '@/store/useRecoveryStore';
 import { useOperationLogStore } from '@/store/useOperationLogStore';
 import { mockOperationLogs } from '@/data/mockOperationLogs';
+import { useInternalNoteStore } from '@/store/useInternalNoteStore';
+import { mockInternalNotes } from '@/data/mockInternalNotes';
 import { useEffect } from 'react';
 import { loadFromStorage } from '@/utils/persistUtils';
 
@@ -21,6 +23,7 @@ export default function App() {
   const { setNotifications } = useNotificationStore();
   const { setRecoveryRecords } = useRecoveryStore();
   const { setOperationLogs } = useOperationLogStore();
+  const { setNotes } = useInternalNoteStore();
 
   useEffect(() => {
     const storedRecalls = loadFromStorage('recalls', null);
@@ -29,6 +32,7 @@ export default function App() {
     const storedRecoveryRecords = loadFromStorage('recoveryRecords', null);
     const storedUsers = loadFromStorage('users', null);
     const storedOperationLogs = loadFromStorage('operationLogs', null);
+    const storedInternalNotes = loadFromStorage('internalNotes', null);
 
     if (storedUsers && storedUsers.length > 0) {
       setUsers(storedUsers);
@@ -64,6 +68,12 @@ export default function App() {
       setOperationLogs(storedOperationLogs);
     } else {
       setOperationLogs(mockOperationLogs);
+    }
+
+    if (storedInternalNotes && storedInternalNotes.length > 0) {
+      setNotes(storedInternalNotes);
+    } else {
+      setNotes(mockInternalNotes);
     }
 
     if (!currentUser) {

@@ -42,9 +42,10 @@ export const Dashboard = () => {
     const submittedNotifications = notifications.filter((n) => n.status === 'submitted').length;
     const overdueNotifications = notifications.filter((n) => n.status === 'overdue').length;
 
-    const totalStock = recoveryRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
-    const totalSold = recoveryRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
-    const totalRecovered = recoveryRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);
+    const formalRecords = recoveryRecords.filter((r) => r.isDraft !== true);
+    const totalStock = formalRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
+    const totalSold = formalRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
+    const totalRecovered = formalRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);
     const totalQuantity = totalStock + totalSold;
 
     const myNotifications =
@@ -91,7 +92,7 @@ export const Dashboard = () => {
       provinceMap.get(province)!.notifications.push(n);
     });
     
-    recoveryRecords.forEach((r) => {
+    recoveryRecords.filter((r) => r.isDraft !== true).forEach((r) => {
       let province = r.unitRegion;
       if (province.includes('省')) {
         province = province.substring(0, province.indexOf('省') + 1);
@@ -109,7 +110,7 @@ export const Dashboard = () => {
     return Array.from(provinceMap.entries()).map(([region, data]) => {
       const regionNotifications = data.notifications;
       const submitted = regionNotifications.filter((n) => n.status === 'submitted').length;
-      const regionRecords = data.records;
+      const regionRecords = data.records.filter((r) => r.isDraft !== true);
       const stock = regionRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
       const sold = regionRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
       const recovered = regionRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);

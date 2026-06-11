@@ -23,7 +23,7 @@ import {
 
 export const RecoveryList = () => {
   const navigate = useNavigate();
-  const { recoveryRecords, getStatistics, getRecoveryRecordByNotificationId } = useRecoveryStore();
+  const { recoveryRecords, getStatistics, getRecoveryRecordByNotificationId, getDraftRecords } = useRecoveryStore();
   const { recalls } = useRecallStore();
   const { notifications } = useNotificationStore();
   const { currentUser, canEditRecall } = useAuth();
@@ -37,6 +37,11 @@ export const RecoveryList = () => {
       currentUser.role === 'pharma' ? true : r.unitId === currentUser.id
     );
   }, [recoveryRecords, currentUser]);
+
+  const myDraftRecords = useMemo(() => {
+    if (!currentUser || currentUser.role === 'pharma') return [];
+    return getDraftRecords(currentUser.id);
+  }, [getDraftRecords, currentUser]);
 
   const pendingNotifications = useMemo(() => {
     if (!currentUser || currentUser.role === 'pharma') return [];
@@ -59,11 +64,15 @@ export const RecoveryList = () => {
     });
   }, [myRecords, keyword, recallFilter, recalls]);
 
+  const formalFilteredRecords = useMemo(() => {
+    return filteredRecords.filter((r) => !r.isDraft);
+  }, [filteredRecords]);
+
   const overallStats = useMemo(() => {
-    if (filteredRecords.length === 0) {
+    if (formalFilteredRecords.length === 0) {
       return { totalStock: 0, totalSold: 0, totalRecovered: 0 };
     }
-    return filteredRecords.reduce(
+    return formalFilteredRecords.reduce(
       (acc, r) => ({
         totalStock: acc.totalStock + r.stockQuantity,
         totalSold: acc.totalSold + r.soldQuantity,
@@ -71,7 +80,7 @@ export const RecoveryList = () => {
       }),
       { totalStock: 0, totalSold: 0, totalRecovered: 0 }
     );
-  }, [filteredRecords]);
+  }, [formalFilteredRecords]);
 
   const clearFilters = () => {
     setKeyword('');
@@ -152,6 +161,48 @@ export const RecoveryList = () => {
         </div>
       )}
 
+      {myDraftRecords.length > 0 && currentUser?.role !== 'pharma' && (
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-slate-700">我的草稿</p>
+          {myDraftRecords.map((record) => {
+            const recall = getRecallInfo(record.recallTaskId);
+            return (
+              <Card
+                key={record.id}
+                className="cursor-pointer transition-colors border-amber-300 bg-amber-50/50 hover:bg-amber-50"
+                onClick={() => navigate(`/recovery/submit/${record.notificationId}`)}
+              >
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-amber-100">
+                        <FileText className="w-6 h-6 text-amber-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-slate-800">{recall?.title || record.recallTaskId}</h3>
+                          {recall && <RiskBadge level={recall.riskLevel} size="sm" />}
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
+                            草稿
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-500 mb-1">
+                          库存 {formatNumber(record.stockQuantity)} 盒 · 已售 {formatNumber(record.soldQuantity)} 盒
+                        </p>
+                        <p className="text-xs text-slate-400">最后更新：{formatDate(record.updatedAt || record.submittedAt)}</p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" rightIcon={<ArrowRight className="w-4 h-4" />}>
+                      继续编辑
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
@@ -161,7 +212,7 @@ export const RecoveryList = () => {
               </div>
               <div>
                 <p className="text-sm text-slate-500">登记记录</p>
-                <p className="text-2xl font-bold text-slate-800">{filteredRecords.length}</p>
+                <p className="text-2xl font-bold text-slate-800">{formalFilteredRecords.length}</p>
               </div>
             </div>
           </CardContent>
@@ -276,12 +327,15 @@ export const RecoveryList = () => {
                   <th className="text-right py-4 px-6 text-sm font-semibold text-slate-600">已回收</th>
                   <th className="text-left py-4 px-6 text-sm font-semibold text-slate-600">回收率</th>
                   <th className="text-left py-4 px-6 text-sm font-semibold text-slate-600">提交时间</th>
+                  {currentUser?.role !== 'pharma' && (
+                    <th className="text-right py-4 px-6 text-sm font-semibold text-slate-600">操作</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filteredRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={currentUser?.role === 'pharma' ? 8 : 6} className="py-16 text-center">
+                    <td colSpan={currentUser?.role === 'pharma' ? 8 : 7} className="py-16 text-center">
                       <ClipboardList className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                       <p className="text-slate-500">暂无回收登记记录</p>
                     </td>
@@ -297,7 +351,14 @@ export const RecoveryList = () => {
                       >
                         <td className="py-4 px-6">
                           <div className="flex flex-col gap-1">
-                            <span className="font-medium text-slate-800">{recall?.title}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-slate-800">{recall?.title}</span>
+                              {record.isDraft && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
+                                  草稿
+                                </span>
+                              )}
+                            </div>
                             {recall && <RiskBadge level={recall.riskLevel} size="sm" />}
                           </div>
                         </td>
@@ -331,6 +392,20 @@ export const RecoveryList = () => {
                         <td className="py-4 px-6 text-slate-500 text-sm">
                           {formatDate(record.submittedAt)}
                         </td>
+                        {currentUser?.role !== 'pharma' && record.isDraft && (
+                          <td className="py-4 px-6 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate(`/recovery/submit/${record.notificationId}`)}
+                            >
+                              继续编辑
+                            </Button>
+                          </td>
+                        )}
+                        {currentUser?.role !== 'pharma' && !record.isDraft && (
+                          <td className="py-4 px-6 text-right" />
+                        )}
                       </tr>
                     );
                   })

@@ -121,6 +121,20 @@ export interface OperationLog {
   operation: string;
   timestamp: string;
   details: string;
+  relatedUnit?: string;
+  relatedUnitRole?: UserRole;
+  processingResult?: string;
+}
+
+export interface InternalNote {
+  id: string;
+  recallTaskId: string;
+  targetId: string;
+  targetType: 'notification' | 'recovery_record';
+  content: string;
+  operator: string;
+  operatorRole: UserRole;
+  createdAt: string;
 }
 
 export type RiskLevelConfig = {

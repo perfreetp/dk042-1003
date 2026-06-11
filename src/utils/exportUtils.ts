@@ -10,12 +10,19 @@ export const exportRecallCertificate = async (
   notifications: Notification[],
   recoveryRecords: RecoveryRecord[],
   operationLogs: OperationLog[] = [],
-  elementId?: string
+  filterSummary?: string,
+  excludeDrafts: boolean = true
 ): Promise<void> => {
   const pdf = new jsPDF('p', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   let yPosition = 20;
+
+  const finalOperationLogs = operationLogs;
+
+  const finalRecoveryRecords = excludeDrafts
+    ? recoveryRecords.filter((r) => r.isDraft !== true)
+    : recoveryRecords;
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(18);
@@ -32,9 +39,30 @@ export const exportRecallCertificate = async (
   pdf.line(20, yPosition, pageWidth - 20, yPosition);
   yPosition += 8;
 
+  if (filterSummary) {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(12);
+    pdf.text('筛选条件摘要', 20, yPosition);
+    yPosition += 8;
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    const summaryMaxWidth = pageWidth - 40;
+    const splitSummary = pdf.splitTextToSize(filterSummary, summaryMaxWidth);
+    splitSummary.forEach((line: string) => {
+      if (yPosition > pageHeight - 30) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      pdf.text(line, 25, yPosition);
+      yPosition += 6;
+    });
+    yPosition += 5;
+  }
+
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(12);
-  pdf.text('一、召回任务基本信息', 20, yPosition);
+  pdf.text('召回任务信息', 20, yPosition);
   yPosition += 8;
 
   pdf.setFont('helvetica', 'normal');
@@ -66,7 +94,7 @@ export const exportRecallCertificate = async (
   yPosition += 5;
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(12);
-  pdf.text('二、召回批次信息', 20, yPosition);
+  pdf.text('涉及批次范围', 20, yPosition);
   yPosition += 8;
 
   pdf.setFont('helvetica', 'normal');
@@ -96,18 +124,18 @@ export const exportRecallCertificate = async (
   yPosition += 5;
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(12);
-  pdf.text('三、召回统计信息', 20, yPosition);
+  pdf.text('通知对象与反馈情况', 20, yPosition);
   yPosition += 8;
 
-  const totalStock = recoveryRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
-  const totalSold = recoveryRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
-  const totalRecovered = recoveryRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);
+  const totalStock = finalRecoveryRecords.reduce((sum, r) => sum + r.stockQuantity, 0);
+  const totalSold = finalRecoveryRecords.reduce((sum, r) => sum + r.soldQuantity, 0);
+  const totalRecovered = finalRecoveryRecords.reduce((sum, r) => sum + r.recoveredQuantity, 0);
   const recoveryRate = totalStock > 0 ? Math.round((totalRecovered / totalStock) * 100) : 0;
 
   const stats = [
     { label: '应通知单位数', value: notifications.length.toString() },
-    { label: '已反馈单位数', value: recoveryRecords.length.toString() },
-    { label: '反馈率', value: `${Math.round((recoveryRecords.length / notifications.length) * 100)}%` },
+    { label: '已反馈单位数', value: finalRecoveryRecords.length.toString() },
+    { label: '反馈率', value: notifications.length > 0 ? `${Math.round((finalRecoveryRecords.length / notifications.length) * 100)}%` : '0%' },
     { label: '库存总数', value: formatNumber(totalStock) + ' 盒' },
     { label: '已销售数量', value: formatNumber(totalSold) + ' 盒' },
     { label: '已回收数量', value: formatNumber(totalRecovered) + ' 盒' },
@@ -128,65 +156,99 @@ export const exportRecallCertificate = async (
   yPosition += 10;
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(12);
-  pdf.text('四、召回单位列表', 20, yPosition);
+  pdf.text('回收登记明细', 20, yPosition);
   yPosition += 8;
 
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
-  recoveryRecords.forEach((record, index) => {
+  if (finalRecoveryRecords.length === 0) {
+    pdf.text('暂无回收登记记录', 25, yPosition);
+    yPosition += 6;
+  } else {
+    finalRecoveryRecords.forEach((record, index) => {
+      if (yPosition > pageHeight - 40) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      const userType = USER_ROLE_CONFIG[record.unitRole].label;
+      pdf.text(
+        `${index + 1}. [${userType}] ${record.unitName} - ${record.unitRegion}`,
+        25,
+        yPosition
+      );
+      pdf.text(
+        `   库存: ${formatNumber(record.stockQuantity)} | 已售: ${formatNumber(record.soldQuantity)} | 已回收: ${formatNumber(record.recoveredQuantity)}`,
+        30,
+        yPosition + 4
+      );
+      if (record.notes) {
+        const notesMaxWidth = pageWidth - 35;
+        const splitNotes = pdf.splitTextToSize(`   备注: ${record.notes}`, notesMaxWidth);
+        splitNotes.forEach((line: string, lineIndex: number) => {
+          pdf.text(line, 30, yPosition + 8 + lineIndex * 4);
+        });
+        yPosition += splitNotes.length * 4;
+      }
+      yPosition += 10;
+    });
+  }
+
+  if (finalOperationLogs.length > 0) {
+    yPosition += 10;
     if (yPosition > pageHeight - 40) {
       pdf.addPage();
       yPosition = 20;
     }
-    const userType = USER_ROLE_CONFIG[record.unitRole].label;
-    pdf.text(
-      `${index + 1}. [${userType}] ${record.unitName} - ${record.unitRegion}`,
-      25,
-      yPosition
-    );
-    pdf.text(
-      `   库存: ${formatNumber(record.stockQuantity)} | 已售: ${formatNumber(record.soldQuantity)} | 已回收: ${formatNumber(record.recoveredQuantity)}`,
-      30,
-      yPosition + 4
-    );
-    yPosition += 10;
-  });
 
-  yPosition += 10;
-  if (yPosition > pageHeight - 40) {
-    pdf.addPage();
-    yPosition = 20;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(12);
+    pdf.text('处理过程记录', 20, yPosition);
+    yPosition += 8;
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    finalOperationLogs
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .forEach((log, index) => {
+        if (yPosition > pageHeight - 35) {
+          pdf.addPage();
+          yPosition = 20;
+        }
+        const timeText = `[${formatDateTime(log.timestamp)}]`;
+        const operatorText = log.operator;
+        const firstLine = `${index + 1}. ${timeText} ${operatorText}`;
+        pdf.text(firstLine, 25, yPosition);
+        yPosition += 5;
+        const detailsMaxWidth = pageWidth - 30 - 20;
+        const splitDetails = pdf.splitTextToSize(log.details, detailsMaxWidth);
+        pdf.text(splitDetails, 30, yPosition);
+        yPosition += splitDetails.length * 5 + 2;
+      });
   }
 
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(12);
-  pdf.text('五、处理过程记录', 20, yPosition);
-  yPosition += 8;
-
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(9);
-  if (operationLogs.length === 0) {
-    if (yPosition > pageHeight - 30) {
+  if (recall.closingNote) {
+    yPosition += 10;
+    if (yPosition > pageHeight - 40) {
       pdf.addPage();
       yPosition = 20;
     }
-    pdf.text('暂无操作记录', 25, yPosition);
-    yPosition += 6;
-  } else {
-    operationLogs.forEach((log, index) => {
-      if (yPosition > pageHeight - 35) {
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(12);
+    pdf.text('结案说明', 20, yPosition);
+    yPosition += 8;
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    const closingMaxWidth = pageWidth - 45;
+    const splitClosing = pdf.splitTextToSize(recall.closingNote, closingMaxWidth);
+    splitClosing.forEach((line: string) => {
+      if (yPosition > pageHeight - 30) {
         pdf.addPage();
         yPosition = 20;
       }
-      const timeText = `[${formatDateTime(log.timestamp)}]`;
-      const operatorText = log.operator;
-      const firstLine = `${index + 1}. ${timeText} ${operatorText}`;
-      pdf.text(firstLine, 25, yPosition);
-      yPosition += 5;
-      const detailsMaxWidth = pageWidth - 30 - 20;
-      const splitDetails = pdf.splitTextToSize(log.details, detailsMaxWidth);
-      pdf.text(splitDetails, 30, yPosition);
-      yPosition += splitDetails.length * 5 + 2;
+      pdf.text(line, 25, yPosition);
+      yPosition += 6;
     });
   }
 
